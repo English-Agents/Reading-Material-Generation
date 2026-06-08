@@ -1,0 +1,88 @@
+databases:
+  - name: rmg-postgres
+    databaseName: rmgdb
+    user: rmg
+    plan: starter
+    postgresMajorVersion: 16
+
+services:
+  # ── Redis ─────────────────────────────────────────────────────────────────────
+  - type: redis
+    name: rmg-redis
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
+
+  # ── FastAPI Backend ───────────────────────────────────────────────────────────
+  - type: web
+    name: rmg-api
+    runtime: python
+    plan: starter
+    pythonVersion: "3.11.0"
+    buildCommand: pip install -e .
+    startCommand: bash start.sh
+    healthCheckPath: /healthz
+    envVars:
+      # Database — injected automatically from the database above
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rmg-postgres
+          property: connectionString
+
+      # Redis — injected automatically from the redis service above
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: rmg-redis
+          property: connectionString
+
+      # LLM — set these in the Render dashboard (mark as secret)
+      - key: ANTHROPIC_API_KEY
+        sync: false        # set manually in Render dashboard
+
+      - key: LLM_BASE_URL
+        value: https://openrouter.ai/api/v1
+
+      - key: GENERATION_MODEL
+        value: anthropic/claude-sonnet-4-6
+
+      # OpenAI embeddings — set in Render dashboard
+      - key: OPENAI_API_KEY
+        sync: false        # set manually in Render dashboard
+
+      # Google Slides — base64-encoded service account JSON
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false        # set manually in Render dashboard
+
+      # CORS — set to your frontend URL after the static site is deployed
+      # Example: https://rmg-frontend.onrender.com
+      - key: CORS_ORIGINS
+        sync: false        # set manually in Render dashboard
+
+      # Tuning
+      - key: MAX_RETRIES
+        value: "3"
+      - key: PATTERN_CONFIDENCE_THRESHOLD
+        value: "0.75"
+      - key: SHADOW_PROMOTION_MARGIN
+        value: "0.05"
+      - key: MIN_EXAMPLES_CONSTANT
+        value: "20"
+      - key: SHADOW_CONFIG_JSON
+        value: '{"concept_explainer":{"traffic_pct":0.2,"min_slides":50},"code_walkthrough":{"traffic_pct":0.2,"min_slides":100},"diagram_describer":{"traffic_pct":0.3,"min_slides":40},"figure_caption":{"traffic_pct":0.3,"min_slides":40}}'
+
+  # ── React Frontend (Static Site) ──────────────────────────────────────────────
+  - type: web
+    name: rmg-frontend
+    runtime: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    pullRequestPreviewsEnabled: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # Set this to your API URL after rmg-api is deployed
+      # Example: https://rmg-api.onrender.com
+      - key: VITE_API_URL
+        sync: false        # set manually in Render dashboard

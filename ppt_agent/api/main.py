@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from ppt_agent.config.settings import settings
 
@@ -56,6 +57,15 @@ def create_app() -> FastAPI:
         title="RMG — Reading Material Generator",
         version="0.1.0",
         lifespan=lifespan,
+    )
+
+    origins = settings.cors_origins_list
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     from ppt_agent.api.export import router as export_router

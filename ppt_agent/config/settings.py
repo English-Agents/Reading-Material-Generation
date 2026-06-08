@@ -38,18 +38,37 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     openai_api_key: str = ""
 
+    # CORS — comma-separated origins, e.g. https://rmg-frontend.onrender.com
+    cors_origins: str = "*"
+
     # Server
     app_host: str = "0.0.0.0"
     app_port: int = 8000
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        if self.cors_origins == "*":
+            return ["*"]
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def shadow_config(self) -> dict:
         return json.loads(self.shadow_config_json)
 
     @property
+    def async_database_url(self) -> str:
+        """Ensure the URL uses the asyncpg driver (Render provides plain postgresql://)."""
+        url = self.database_url
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif url.startswith("postgresql://") and "+asyncpg" not in url:
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return url
+
+    @property
     def sync_database_url(self) -> str:
         """Synchronous URL for Alembic (psycopg2, not asyncpg)."""
-        return self.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        return self.async_database_url.replace("postgresql+asyncpg://", "postgresql://")
 
     @property
     def pattern_promotion_threshold(self) -> int:
