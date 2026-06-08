@@ -1,0 +1,13 @@
+{
+  "name": "ppt-agent-evals",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PromptFoo eval runner for ppt-agent",
+  "scripts": {
+    "eval": "promptfoo eval --config ppt_agent/evals/promptfoo.yaml",
+    "eval:view": "promptfoo view"
+  },
+  "devDependencies": {
+    "promptfoo": "^0.82.0"
+  }
+}

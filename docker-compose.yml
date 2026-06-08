@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: rmg-postgres
+    environment:
+      POSTGRES_USER: rmg
+      POSTGRES_PASSWORD: rmg
+      POSTGRES_DB: rmgdb
+    ports:
+      - "5434:5432"
+    volumes:
+      - rmg_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rmg -d rmgdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: rmg-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - rmg_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  rmg_pgdata:
+  rmg_redisdata:

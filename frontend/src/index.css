@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+/* Reading material rendered HTML */
+.rm-content h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.75rem; }
+.rm-content h2 { font-size: 1.2rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+.rm-content h3 { font-size: 1rem; font-weight: 600; margin: 0.75rem 0 0.25rem; }
+.rm-content details { border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; margin: 6px 0; }
+.rm-content summary { cursor: pointer; font-weight: 500; color: #4f46e5; }
+.rm-content code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; }
+.rm-content pre  { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 0.85em; }

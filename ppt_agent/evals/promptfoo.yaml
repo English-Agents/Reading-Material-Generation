@@ -1,0 +1,190 @@
+description: "RMG PPT-Agent — Reading Material Evals"
+
+providers:
+  - id: anthropic:claude-sonnet-4-6
+    config:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+# Load auto-generated test cases from reviewer rejections
+tests:
+  - file://regression_suite/auto_generated.yaml
+
+# ── Tier 1: deterministic assertions (must all pass 100%) ─────────────────
+# ── Tier 2: llm-rubric (avg score must be >= 3.5 / 5.0) ──────────────────
+
+defaultTest:
+  assert:
+    - type: javascript
+      value: "output.length > 200"
+      metric: min-length
+
+# ── concept_explainer ─────────────────────────────────────────────────────
+- description: "concept_explainer — complete format check"
+  vars:
+    skill: concept_explainer
+    slide_title: "Verbal Ability"
+    slide_body: "Verbal ability covers vocabulary, grammar, reading comprehension, and reasoning through language."
+  assert:
+    # Tier 1 — structural
+    - type: contains
+      value: "<IndexList>"
+    - type: contains
+      value: "<Section"
+    - type: contains
+      value: "<SubSection>"
+    - type: contains
+      value: "<MultiLineNote>"
+    - type: contains
+      value: "<details>"
+    - type: contains
+      value: "<HighlightedText>"
+    - type: contains
+      value: "Answer:"
+    - type: contains
+      value: "Explanation:"
+    - type: contains
+      value: "Quick Tip"
+    - type: javascript
+      value: "output.length > 1500"
+      metric: min-length
+    - type: not-contains
+      value: "I cannot"
+    - type: not-contains
+      value: "I'm sorry"
+    # Tier 2 — rubric
+    - type: llm-rubric
+      value: |
+        Score 1-5 on how well this reading material:
+        1. Teaches the topic clearly to a beginner (1=unclear, 5=very clear)
+        2. Uses workplace/product-team scenarios in all examples
+        3. Follows the required format (IndexList, Sections, SubSections, MultiLineNote, details)
+        4. Provides accurate explanations for correct and incorrect options
+        5. Has a conversational but professional tone
+        Score: average of the above. Return SCORE: N/5 and a one-line reason.
+      metric: rubric-quality
+      threshold: 0.7
+
+- description: "concept_explainer — BAD: missing structure, no examples"
+  vars:
+    skill: concept_explainer
+    slide_title: "Verbal Ability"
+    slide_body: "Verbal ability covers vocabulary and grammar."
+  assert:
+    - type: not-contains
+      value: "<IndexList>"
+      metric: bad-format-detected
+
+- description: "concept_explainer — BAD: refusal output"
+  vars:
+    skill: concept_explainer
+    slide_title: "Verbal Ability"
+    slide_body: "Verbal ability test"
+  assert:
+    - type: not-contains
+      value: "I cannot generate"
+    - type: not-contains
+      value: "I don't have enough"
+
+# ── code_walkthrough ──────────────────────────────────────────────────────
+- description: "code_walkthrough — contains code fences and structure"
+  vars:
+    skill: code_walkthrough
+    slide_title: "Python Functions"
+    slide_body: "def greet(name):\n    return f'Hello, {name}'"
+  assert:
+    - type: contains
+      value: "<IndexList>"
+    - type: contains
+      value: "<Section"
+    - type: contains
+      value: "```"
+    - type: contains
+      value: "Answer:"
+    - type: contains
+      value: "Explanation:"
+    - type: javascript
+      value: "output.length > 500"
+    - type: llm-rubric
+      value: |
+        Score 1-5: Does this code walkthrough clearly explain the code step by step,
+        use proper code fences, have examples with correct/incorrect code comparisons,
+        and use workplace scenarios? Return SCORE: N/5 and a one-line reason.
+      metric: rubric-quality
+      threshold: 0.7
+
+# ── diagram_describer ─────────────────────────────────────────────────────
+- description: "diagram_describer — describes diagram elements"
+  vars:
+    skill: diagram_describer
+    slide_title: "Sprint Workflow"
+    diagram_type: "flowchart"
+    key_elements: '["backlog", "sprint planning", "daily standup", "sprint review", "retrospective"]'
+    relationships: '["backlog feeds into sprint planning", "sprint planning starts the sprint", "retrospective feeds back into backlog"]'
+  assert:
+    - type: contains
+      value: "<Section"
+    - type: contains
+      value: "Answer:"
+    - type: contains
+      value: "Explanation:"
+    - type: javascript
+      value: "output.length > 500"
+    - type: llm-rubric
+      value: |
+        Score 1-5: Does this diagram description accurately describe the diagram elements,
+        teach the concept shown, and have examples that ask readers to interpret the diagram?
+        Return SCORE: N/5 and a one-line reason.
+      metric: rubric-quality
+      threshold: 0.7
+
+# ── figure_caption ────────────────────────────────────────────────────────
+- description: "figure_caption — concise, within length bounds"
+  vars:
+    skill: figure_caption
+    slide_title: "Team Collaboration"
+    image_type: "photo"
+    key_elements: '["four people at a whiteboard", "sticky notes", "laptop on table"]'
+  assert:
+    - type: contains
+      value: "<Section"
+    - type: javascript
+      value: "output.length >= 100"
+    - type: javascript
+      value: "output.length <= 2000"
+    - type: llm-rubric
+      value: |
+        Score 1-5: Is this figure caption accurate, concise (not too long), and
+        does it help a reader understand what the image shows and why it matters?
+        Return SCORE: N/5 and a one-line reason.
+      metric: rubric-quality
+      threshold: 0.7
+
+# ── quiz_generator ────────────────────────────────────────────────────────
+- description: "quiz_generator — 5 questions with A/B/C/D options"
+  vars:
+    skill: quiz_generator
+    slide_title: "Synonyms and Antonyms"
+    slide_body: "A synonym is a word with the same meaning. An antonym is a word with the opposite meaning."
+  assert:
+    - type: contains
+      value: "A)"
+    - type: contains
+      value: "B)"
+    - type: contains
+      value: "C)"
+    - type: contains
+      value: "D)"
+    - type: contains
+      value: "Answer:"
+    - type: contains
+      value: "Explanation:"
+    - type: javascript
+      value: "(output.match(/Answer:/g) || []).length >= 5"
+      metric: question-count
+    - type: llm-rubric
+      value: |
+        Score 1-5: Does this quiz have exactly 5 questions, each with 4 options (A-D),
+        a correct answer, and a clear explanation? Are the questions varied in type
+        (not all the same question format)? Return SCORE: N/5 and a one-line reason.
+      metric: rubric-quality
+      threshold: 0.7

@@ -1,0 +1,13 @@
+.env
+*.json.key
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+node_modules/
+.promptfoo/
+results.json

@@ -1,0 +1,51 @@
+[project]
+name = "ppt-agent"
+version = "0.1.0"
+description = "PPT-to-reading-material agentic system"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "anthropic>=0.28",
+    "psycopg2-binary>=2.9",
+    "pgvector>=0.3",
+    "redis>=5.0",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "python-dotenv>=1.0",
+    "pillow>=10.0",
+    "httpx>=0.27",
+    "alembic>=1.13",
+    "numpy>=1.26",
+    "python-pptx>=1.0",
+    "pypandoc>=1.13",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "openai>=1.35",
+    "google-auth>=2.30",
+    "google-api-python-client>=2.130",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "fakeredis>=2.23",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+rmg-server = "ppt_agent.api.main:start"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ppt_agent"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["ppt_agent/tests"]
+markers = ["integration: requires live DB and Redis"]
