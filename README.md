@@ -24,7 +24,10 @@ An **agentic, self-improving pipeline** that converts PowerPoint presentations (
 16. [Ops Monitoring & Auto-Rollback](#ops-monitoring--auto-rollback)
 17. [Eval Pipeline (PromptFoo)](#eval-pipeline-promptfoo)
 18. [Running Tests](#running-tests)
-19. [Key Design Decisions](#key-design-decisions)
+19. [Content Quality Guidelines](#content-quality-guidelines)
+20. [Markdown Conversion Guidelines](#markdown-conversion-guidelines)
+21. [Guidelines Alignment — Application Cross-Check](#guidelines-alignment--application-cross-check)
+22. [Key Design Decisions](#key-design-decisions)
 
 ---
 
@@ -207,6 +210,8 @@ d:\RMG\
 │   │   └── api/client.ts        # Typed axios wrapper for all API endpoints
 │   └── ...
 │
+├── render.yaml                  # Render.com deployment — all 4 services defined
+├── start.sh                     # Render startup script — migrate + seed + uvicorn
 ├── docker-compose.yml           # PostgreSQL 16 (pgvector) + Redis 7
 ├── pyproject.toml               # Python dependencies + pytest config
 ├── alembic.ini
@@ -477,7 +482,7 @@ Or use the installed script:
 rmg-server
 ```
 
-The API is available at `http://localhost:8000`.  
+The API is available at `http://localhost:8000`.
 Interactive docs: `http://localhost:8000/docs`
 
 ### Frontend (React)
@@ -603,7 +608,7 @@ Each skill call is wrapped with `@with_circuit_breaker(skill_type)`:
 
 1. First failure → retry immediately, increment `retry_count`
 2. After `MAX_RETRIES` (default 3) failures → set `status = 'needs_repair'`, insert into `repair_queue`, return `RepairRequired` dataclass
-3. The router checks `isinstance(result, RepairRequired)` and returns an appropriate API response
+3. The router checks `isinstance(result, RepairRequired)` and branches
 4. Repair queue is visible in the dashboard and via `GET /review/repair-queue`
 
 ---
@@ -691,6 +696,103 @@ pytest ppt_agent/tests/test_api.py -v
 
 ---
 
+## Content Quality Guidelines
+
+These are the content standards that every generated reading material must meet. They are enforced through the system prompt (`format_schema.py`), the reviewer approval workflow, and the GEPA optimizer.
+
+1. Clearly define the target audience, learner profile, and learning objectives before developing the material.
+2. Understand the learners' linguistic, cultural, educational, and exposure background, and adapt the teaching approach accordingly instead of using the same method for all learners.
+3. Conduct proper market research to understand current industry trends, learner expectations, and exam or job-related requirements.
+4. Refer to authentic and reliable reference materials, and verify concepts using multiple trusted sources before creating the content.
+5. Plan the content structure carefully and maintain a logical flow by progressing from basic concepts to advanced topics using clear headings and subheadings.
+6. Ensure the difficulty level, explanations, and examples align with the learner's proficiency, curriculum, assessment pattern, or skill requirement.
+7. Use simple, clear, concise, and learner-friendly language with proper grammatical accuracy and consistent formatting throughout the material.
+8. Keep the content organised and manageable through short paragraphs, bullet points, summaries, and quick revision sections.
+9. Include definitions, key points, formulas, shortcuts, and concept explanations wherever necessary for better understanding and retention.
+10. Add practical, real-life, academic, and professional application-based examples so learners understand why, what, and where a concept is used.
+11. Use contextual scenarios, case-based situations, and problem-solving activities to encourage critical thinking, analytical reasoning, and practical application.
+12. Include practice exercises, activities, and assessment-oriented questions after each section to reinforce learning outcomes.
+13. Identify common learner difficulties and errors caused by first-language influence, direct translation methods, limited exposure, or incorrect usage patterns, and explain why learners are likely to make those mistakes.
+14. Provide corrective guidance, awareness-based explanations, and practical usage examples to help learners recognise errors and develop natural, context-appropriate English communication skills.
+15. Use visuals, charts, tables, or diagrams wherever necessary to improve comprehension, engagement, and content clarity.
+16. Cross-check all references, examples, explanations, answers, and factual information thoroughly to ensure accuracy, consistency, and overall content quality.
+17. Regularly review, update, and revise the material based on learner feedback, updated research, and changing academic or industry requirements.
+
+---
+
+## Markdown Conversion Guidelines
+
+These standards govern how content is structured, formatted, and rendered in Markdown across the review UI and exported files.
+
+1. Understand the purpose, target platform, and formatting requirements before starting the Markdown conversion process.
+2. Maintain the original meaning, structure, and logical flow of the content during conversion.
+3. Use proper Markdown syntax consistently for headings, subheadings, bullet points, numbered lists, tables, links, code blocks, and emphasis formatting.
+4. Ensure clear hierarchy and readability by using appropriate heading levels and spacing throughout the document.
+5. Keep the formatting clean, organised, and visually consistent across all sections.
+6. Verify that all lists, indentation, alignment, and nested formatting render correctly after conversion.
+7. Preserve important content elements such as examples, tables, formulas, notes, warnings, and highlighted points without distortion.
+8. Ensure hyperlinks, references, embedded resources, and navigation elements function properly after conversion.
+9. Optimise the document for readability across different platforms, editors, and devices that support Markdown rendering.
+10. Cross-check the converted Markdown output for formatting errors, broken structure, missing content, or rendering inconsistencies.
+11. Ensure grammatical accuracy, proper spacing, and consistent terminology throughout the converted material.
+12. Follow standardised naming conventions, file organisation practices, and documentation guidelines wherever applicable.
+13. Review and test the final Markdown file in a Markdown-preview to confirm proper rendering and usability.
+
+---
+
+## Guidelines Alignment — Application Cross-Check
+
+### Content Quality Guidelines
+
+| # | Guideline | Status | How the application covers it |
+|---|---|---|---|
+| 1 | Define target audience and learning objectives | ✅ | `AUDIENCE_PROMPT` specifies beginner-to-intermediate learners targeting TCS/Infosys/Wipro/Cognizant placement tests |
+| 2 | Adapt to learner background | ⚠️ | Audience is hardcoded — no per-deck variation for different learner levels |
+| 3 | Market research on industry trends | ⚠️ | Must be done manually before uploading the source deck — the system does not perform market research |
+| 4 | Verify concepts from trusted sources | ⚠️ | "Where to Practise" lists real resources; content accuracy must be verified by the human reviewer before approving |
+| 5 | Logical flow — basic to advanced | ✅ | `FORMAT_TEMPLATE` enforces: Overview → Subtopics (Easy → Medium → Hard) → Prepare → Score → Practise |
+| 6 | Difficulty aligned to proficiency | ✅ | Easy / Medium / Hard examples enforced per subtopic; placement test audience profile is hardcoded |
+| 7 | Simple, learner-friendly language | ✅ | Prompt enforces conversational but professional second-person voice throughout |
+| 8 | Short paragraphs, summaries, revision sections | ⚠️ | Numbered lists and tables are used; no dedicated Key Takeaways or Quick Recap section |
+| 9 | Definitions, key points, shortcuts | ⚠️ | Each subtopic opens with a definition paragraph and Quick Tip; no standalone Key Points block |
+| 10 | Practical, professional examples | ✅ | Every example must use sprint / bug fix / code review / product launch scenarios — hardcoded rule |
+| 11 | Contextual scenarios, analytical thinking | ✅ | Every MCQ has a workplace scenario + explanation of why the correct answer is right and why distractors are wrong |
+| 12 | Practice exercises after each section | ⚠️ | Three MCQs per subtopic are included; no open-ended or non-MCQ practice activities |
+| 13 | Common learner errors — L1 interference | ❌ | No Common Errors section exists in the current format template |
+| 14 | Corrective guidance in explanations | ✅ | `FORMAT_TEMPLATE` rule: every explanation must state why the correct answer is right and why at least one wrong option is wrong |
+| 15 | Visuals, charts, tables | ⚠️ | How to Score is a table; Quick Tips use styled blockquotes; no concept diagrams or visual grammar aids |
+| 16 | Cross-check accuracy before publishing | ✅ | Human Approve / Reject workflow + G-Eval auto-scoring + Tier-1 structural assertions |
+| 17 | Regular review based on feedback | ✅ | GEPA optimizer rewrites prompts on rejection; feedback signals feed pattern memory; Shadow A/B validates improvements |
+
+### Markdown Conversion Guidelines
+
+| # | Guideline | Status | How the application covers it |
+|---|---|---|---|
+| 1 | Understand purpose and platform | ✅ | `FORMAT_TEMPLATE` is purpose-built for the review UI and placement test audience |
+| 2 | Maintain meaning and logical flow | ✅ | `deck_compiler.py` faithfully represents all slide content in the prompt |
+| 3 | Consistent Markdown syntax | ✅ | `#` / `##` / `###`, numbered lists, tables, `**bold**`, `*italic*`, `> blockquote` all explicitly defined in the template |
+| 4 | Clear hierarchy with spacing | ✅ | `#` title → `##` sections → `###` subtopics → `---` dividers throughout |
+| 5 | Clean, consistent formatting | ✅ | Every subtopic follows identical structure: definition → Example 1/2/3 → Quick Tip |
+| 6 | Verify lists and tables render correctly | ⚠️ | `remark-gfm` handles GFM tables and lists; human reviewer must confirm rendering before approving |
+| 7 | Preserve examples, tables, notes | ✅ | MCQ structure, How to Score table, and `> **Quick Tip:**` blockquotes are all preserved |
+| 8 | Hyperlinks for references | ❌ | "Where to Practise" resources are plain text — not formatted as clickable Markdown links |
+| 9 | Readable across platforms | ✅ | Pure Markdown — zero HTML — the most portable format possible |
+| 10 | Check for structural errors | ✅ | `TIER1_ASSERTIONS` validates all 9 required section markers are present before a generation is stored |
+| 11 | Grammar accuracy and terminology | ⚠️ | Reviewer can reject with `factual_error` or `unclear_explanation`; no automated grammar checker runs pre-review |
+| 12 | Naming conventions and file organisation | ✅ | `skill_type` naming is consistent; all sections always use the same heading names |
+| 13 | Test in Markdown preview | ✅ | `GenerationCard` is a live rendered preview — reviewer sees the final output before approving |
+
+### Known Gaps — Planned Improvements
+
+| Priority | Gap | Planned Fix |
+|---|---|---|
+| High | No Common Errors section (Guideline 13) | Add `## Common Errors` section to `FORMAT_TEMPLATE` listing 3–5 typical L1-interference mistakes with corrections |
+| High | No Key Points block per subtopic (Guideline 9) | Add a `> **Key Points:**` summary after each subtopic definition, before Example 1 |
+| Medium | "Where to Practise" links are plain text (Markdown Guideline 8) | Change prompt rule so resources use `[Name](URL)` Markdown link format |
+| Medium | No Quick Recap at end of document (Guideline 8) | Add a `## Quick Recap` section with one bullet takeaway per subtopic |
+
+---
+
 ## Key Design Decisions
 
 ### One LLM call per deck (not per slide)
@@ -709,6 +811,9 @@ Shadow traffic split uses `hashlib.md5(deck_id)` — not per-request randomness.
 
 ### DSPy GEPA only when ≥10 examples
 Running the optimizer with fewer examples produces noisy, overfitted prompts. The 10-example floor ensures the optimizer has enough signal to improve rather than just memorise.
+
+### Human reviewer as the quality gate
+Every generated document sits in `pending` status until a human approves it. The G-Eval score is advisory only — it does not auto-approve. This ensures content guidelines (especially factual accuracy and common-error coverage) are verified by a person before any material reaches learners.
 
 ---
 
