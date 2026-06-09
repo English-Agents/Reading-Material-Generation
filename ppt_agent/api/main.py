@@ -72,11 +72,13 @@ def create_app() -> FastAPI:
     from ppt_agent.api.generate import router as generate_router
     from ppt_agent.api.ops import router as ops_router
     from ppt_agent.api.review import router as review_router
+    from ppt_agent.api.source_content import router as source_content_router
 
     app.include_router(generate_router, prefix="/generate", tags=["generate"])
     app.include_router(review_router, prefix="/review", tags=["review"])
     app.include_router(ops_router, prefix="/ops", tags=["ops"])
     app.include_router(export_router, prefix="/export", tags=["export"])
+    app.include_router(source_content_router, prefix="/source-content", tags=["source-content"])
 
     @app.get("/healthz", tags=["health"])
     async def healthz():

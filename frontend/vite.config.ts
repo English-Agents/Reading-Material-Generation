@@ -12,6 +12,7 @@ export default defineConfig({
       "/ops": "http://localhost:8000",
       "/export": "http://localhost:8000",
       "/healthz": "http://localhost:8000",
+      "/source-content": "http://localhost:8000",
     },
   },
 });

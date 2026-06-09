@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
+    String,
     Text,
     TIMESTAMP,
     text,
@@ -180,6 +181,25 @@ class PatternMemory(Base):
     example_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="candidate")
     source_feedback_ids: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("NOW()")
+    )
+
+
+class SourceContent(Base):
+    """Developer-curated reference passages grounding the LLM generation."""
+    __tablename__ = "source_content"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    deck_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    topic_label: Mapped[str] = mapped_column(Text, nullable=False)
+    source_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    page_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    passage_text: Mapped[str] = mapped_column(String(2000), nullable=False)
+    author: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    uploaded_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    alignment_score: Mapped[Optional[float]] = mapped_column(Numeric(4, 3), nullable=True)
+    alignment_verdict: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("NOW()")
     )

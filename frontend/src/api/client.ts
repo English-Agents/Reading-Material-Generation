@@ -78,6 +78,46 @@ export interface FeedbackSignal {
   reviewer_note?: string;
 }
 
+export interface SourceContentItem {
+  id: string;
+  deck_id: string;
+  topic_label: string;
+  passage_text: string;
+  source_title: string | null;
+  page_ref: string | null;
+  author: string | null;
+  alignment_score: number | null;
+  alignment_verdict: "pass" | "warn" | "fail" | null;
+  char_count: number;
+  created_at: string;
+}
+
+export interface SourceContentListResponse {
+  passages: SourceContentItem[];
+  total_chars: number;
+  budget_chars: number;
+  budget_remaining: number;
+}
+
+export interface PassageValidationResult {
+  passage_id: string;
+  source_title: string;
+  alignment_score: number;
+  verdict: "pass" | "warn" | "fail";
+  reason: string;
+}
+
+export interface ValidationResponse {
+  topic_id: string;
+  topic_text: string;
+  overall_verdict: "pass" | "warn" | "fail";
+  overall_score: number;
+  threshold: number;
+  passage_results: PassageValidationResult[];
+  generation_blocked: boolean;
+  message: string;
+}
+
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 export const generateFromFile = (file: File) => {
@@ -132,3 +172,33 @@ export const getRepairQueue = () =>
 
 export const exportDeck = (deck_id: string, format: string) =>
   api.post(`/export/${deck_id}`, { format }, { responseType: "blob" });
+
+// ── Source Content ─────────────────────────────────────────────────────────────
+
+export const addSourcePassage = (
+  deck_id: string,
+  data: {
+    topic_label: string;
+    passage_text: string;
+    source_title?: string;
+    page_ref?: string;
+    author?: string;
+    uploaded_by?: string;
+  }
+) => api.post<SourceContentItem>(`/source-content/${deck_id}`, data);
+
+export const listSourcePassages = (deck_id: string) =>
+  api.get<SourceContentListResponse>(`/source-content/${deck_id}`);
+
+export const deleteSourcePassage = (deck_id: string, passage_id: string) =>
+  api.delete(`/source-content/${deck_id}/${passage_id}`);
+
+export const validateSourcePassages = (
+  deck_id: string,
+  topic_text: string,
+  override_warn = false
+) =>
+  api.post<ValidationResponse>(`/source-content/${deck_id}/validate`, {
+    topic_text,
+    override_warn,
+  });

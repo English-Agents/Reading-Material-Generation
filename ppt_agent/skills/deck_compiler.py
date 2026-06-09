@@ -1,8 +1,14 @@
 """
 Deck compiler — ONE LLM call per deck upload.
 
-Takes raw slide content (title + body text from every slide) and generates
-a single, comprehensive reading material document.  No per-slide generation.
+Takes raw slide content (title + body text from every slide) plus any
+developer-curated source passages and generates a single, comprehensive
+reading material document.
+
+Source passage budget:
+  - Max 2,000 chars per passage (enforced at API + DB layer)
+  - Max 12,000 chars total across all passages for one deck
+  - Budget guard raises SourceBudgetExceeded before the LLM call
 """
 from __future__ import annotations
 
@@ -10,14 +16,32 @@ import sys
 import uuid
 from pathlib import Path
 
+from sqlalchemy import select
+
 from ppt_agent import llm
-from ppt_agent.db.models import Generation
+from ppt_agent.db.models import Generation, SourceContent
 from ppt_agent.db.session import get_db_session
 from ppt_agent.memory.prompt_store import get_active
 from ppt_agent.skills.cost_tracker import _cost_usd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from slide_parser import ParsedSlide
+
+MAX_SOURCE_CHARS_PER_DECK = 12_000  # ~3,000 tokens — keeps total input ≤ 4,000 tokens
+
+
+class SourceBudgetExceeded(Exception):
+    pass
+
+
+def check_source_budget(passages: list[SourceContent]) -> None:
+    total = sum(len(p.passage_text) for p in passages)
+    if total > MAX_SOURCE_CHARS_PER_DECK:
+        raise SourceBudgetExceeded(
+            f"Total source content ({total:,} chars) exceeds the "
+            f"{MAX_SOURCE_CHARS_PER_DECK:,}-char limit (~3,000 tokens). "
+            "Remove passages to continue."
+        )
 
 
 async def compile_deck(deck_id: str, slides: list[ParsedSlide]) -> str:
@@ -30,7 +54,19 @@ async def compile_deck(deck_id: str, slides: list[ParsedSlide]) -> str:
         if prompt_version is None:
             raise RuntimeError("No active prompt for deck_reading — run reseed_prompts.py")
 
-        user_text = _build_user_text(slides)
+        # Fetch developer-curated source passages for this deck
+        source_rows = (
+            await db.execute(
+                select(SourceContent)
+                .where(SourceContent.deck_id == uuid.UUID(deck_id))
+                .order_by(SourceContent.created_at.asc())
+            )
+        ).scalars().all()
+
+        if source_rows:
+            check_source_budget(list(source_rows))
+
+        user_text = _build_user_text(slides, list(source_rows))
 
         output, tokens_in, tokens_out = await llm.complete(
             system=prompt_version.prompt_text,
@@ -55,10 +91,10 @@ async def compile_deck(deck_id: str, slides: list[ParsedSlide]) -> str:
         return str(gen.id)
 
 
-def _build_user_text(slides: list[ParsedSlide]) -> str:
+def _build_user_text(slides: list[ParsedSlide], source_passages: list[SourceContent]) -> str:
     """
     Flatten all slide content into a single prompt block.
-    Images are noted but not inlined — keeps the call text-only and cheap.
+    Appends validated source passages as a grounding reference section.
     """
     lines: list[str] = [
         f"PRESENTATION CONTENT ({len(slides)} slides)\n",
@@ -79,5 +115,15 @@ def _build_user_text(slides: list[ParsedSlide]) -> str:
         if has_images:
             lines.append(f"[This slide contains {len(slide.embedded_images)} image(s)]")
         lines.append("")
+
+    if source_passages:
+        lines.append("\n--- REFERENCE PASSAGES (verified, use as grounding source) ---\n")
+        for p in source_passages:
+            ref = f"{p.source_title or 'Reference'}"
+            if p.page_ref:
+                ref += f", p.{p.page_ref}"
+            lines.append(f"[{p.topic_label}] {ref}:")
+            lines.append(p.passage_text)
+            lines.append("")
 
     return "\n".join(lines)
