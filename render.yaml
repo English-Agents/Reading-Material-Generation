@@ -1,4 +1,8 @@
 services:
+  - type: redis
+    name: rmg-redis
+    plan: free
+
   - type: web
     name: rmg-api
     runtime: python
@@ -12,7 +16,10 @@ services:
         sync: false
 
       - key: REDIS_URL
-        sync: false
+        fromService:
+          type: redis
+          name: rmg-redis
+          property: connectionString
 
       - key: ANTHROPIC_API_KEY
         sync: false
