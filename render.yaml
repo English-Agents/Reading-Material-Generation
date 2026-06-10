@@ -1,34 +1,18 @@
-databases:
-  - name: rmg-postgres
-    databaseName: rmgdb
-    user: rmg
-    plan: starter
-    postgresMajorVersion: 16
-
 services:
-  - type: redis
-    name: rmg-redis
-    plan: starter
-
   - type: web
     name: rmg-api
     runtime: python
-    plan: starter
+    plan: free
     pythonVersion: "3.11.0"
     buildCommand: cd frontend && npm install && npm run build && cd .. && pip install -e .
     startCommand: bash start.sh
     healthCheckPath: /healthz
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: rmg-postgres
-          property: connectionString
+        sync: false
 
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: rmg-redis
-          property: connectionString
+        sync: false
 
       - key: ANTHROPIC_API_KEY
         sync: false
