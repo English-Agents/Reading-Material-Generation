@@ -10,7 +10,6 @@ services:
   - type: redis
     name: rmg-redis
     plan: free
-    maxmemoryPolicy: allkeys-lru
 
   # ── Combined Backend + Frontend ───────────────────────────────────────────────
   # Build step: compile React first, then install Python deps.
