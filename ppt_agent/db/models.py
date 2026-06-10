@@ -64,7 +64,7 @@ class Generation(Base):
     __tablename__ = "generations"
     __table_args__ = (
         CheckConstraint(
-            "skill_type IN ('concept_explainer','code_walkthrough','diagram_describer','figure_caption','quiz_generator')",
+            "skill_type IN ('concept_explainer','code_walkthrough','diagram_describer','figure_caption','quiz_generator','deck_reading')",
             name="ck_generations_skill_type",
         ),
         CheckConstraint(
@@ -141,7 +141,8 @@ class Feedback(Base):
         CheckConstraint(
             "signal_type IN ('too_long','too_short','wrong_tone','missing_example',"
             "'factual_error','format_violation','unnecessary_diagram',"
-            "'needs_diagram','unclear_explanation')",
+            "'needs_diagram','unclear_explanation','wrong_difficulty_level',"
+            "'missing_common_errors','missing_correction','diagram_incorrect')",
             name="ck_feedback_signal_type",
         ),
         CheckConstraint("severity IN (1,2,3)", name="ck_feedback_severity"),
@@ -200,6 +201,7 @@ class SourceContent(Base):
     uploaded_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     alignment_score: Mapped[Optional[float]] = mapped_column(Numeric(4, 3), nullable=True)
     alignment_verdict: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    alignment_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("NOW()")
     )
@@ -219,6 +221,23 @@ class Alert(Base):
     skill_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("NOW()")
+    )
+
+
+class BookChunk(Base):
+    """One text chunk extracted from a book in the books/ folder."""
+    __tablename__ = "book_chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    book_title: Mapped[str] = mapped_column(Text, nullable=False)
+    author: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    file_name: Mapped[str] = mapped_column(Text, nullable=False)
+    chapter: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding: Mapped[Optional[list]] = mapped_column(Vector(1536), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("NOW()")
     )

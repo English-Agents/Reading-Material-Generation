@@ -72,9 +72,14 @@ export default function DashboardPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {dashboard.skills.map((s) => (
-                  <tr key={s.skill_type} className="hover:bg-slate-50">
+                  <tr
+                    key={s.skill_type}
+                    className={`hover:bg-slate-50 ${s.skill_type === "deck_reading" ? "bg-indigo-50/40" : ""}`}
+                  >
                     <td className="px-4 py-2 font-medium text-indigo-700">
-                      {s.skill_type.replace("_", " ")}
+                      {s.skill_type === "deck_reading"
+                        ? "deck reading ★"
+                        : s.skill_type.replace(/_/g, " ")}
                     </td>
                     <td className="px-4 py-2 text-slate-600">{s.total_generations}</td>
                     <td className="px-4 py-2 text-green-600">{s.approved}</td>
@@ -171,7 +176,7 @@ export default function DashboardPage() {
                       {r.generation_id.slice(0, 8)}
                     </td>
                     <td className="px-4 py-2 text-indigo-700">
-                      {r.skill_type.replace("_", " ")}
+                      {r.skill_type.replace(/_/g, " ")}
                     </td>
                     <td className="px-4 py-2 text-slate-600">{r.retry_count}</td>
                     <td className="px-4 py-2 text-red-500 text-xs max-w-xs truncate">

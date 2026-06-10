@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listGenerations, exportDeck } from "../api/client";
 import GenerationCard from "../components/GenerationCard";
@@ -57,6 +57,12 @@ export default function ReviewPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link
+            to={`/source/${deckId}`}
+            className="px-3 py-1.5 text-sm border border-indigo-300 text-indigo-600 rounded-lg hover:bg-indigo-50 font-medium"
+          >
+            Source passages
+          </Link>
           {["markdown", "docx", "pdf"].map((fmt) => (
             <button
               key={fmt}

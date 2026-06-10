@@ -11,6 +11,10 @@ const SIGNALS = [
   { value: "unclear_explanation", label: "Unclear explanation" },
   { value: "unnecessary_diagram", label: "Unnecessary diagram" },
   { value: "needs_diagram", label: "Needs diagram" },
+  { value: "wrong_difficulty_level", label: "Wrong difficulty" },
+  { value: "missing_common_errors", label: "Missing common errors" },
+  { value: "missing_correction", label: "Missing correction" },
+  { value: "diagram_incorrect", label: "Diagram incorrect" },
 ];
 
 interface Props {

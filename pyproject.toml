@@ -25,6 +25,9 @@ dependencies = [
     "google-auth>=2.30",
     "google-api-python-client>=2.130",
     "python-multipart>=0.0.9",
+    "pdfplumber>=0.11",
+    "ebooklib>=0.20",
+    "beautifulsoup4>=4.12",
 ]
 
 [project.optional-dependencies]

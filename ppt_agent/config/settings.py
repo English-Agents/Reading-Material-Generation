@@ -8,7 +8,20 @@ class Settings(BaseSettings):
     # LLM — OpenRouter (OpenAI-compatible) or direct Anthropic
     anthropic_api_key: str = ""          # accepts OpenRouter key (sk-or-v1-...)
     generation_model: str = "anthropic/claude-sonnet-4-6"
+    alignment_model: str = "anthropic/claude-haiku-4-5-20251001"
     llm_base_url: str = "https://openrouter.ai/api/v1"
+
+    # Source content
+    alignment_threshold: float = 0.7
+    max_source_chars_per_deck: int = 12_000
+
+    # Schema versioning
+    current_schema_version: str = "1.0"
+
+    # Book retrieval (optional — requires books/ folder to be ingested)
+    use_book_retrieval: bool = False   # set True in .env to auto-retrieve from books/
+    book_retrieval_top_k: int = 6      # max chunks to retrieve per generation
+    books_dir: str = "books"           # relative path to books folder
 
     # Google
     google_service_account_json: str = ""  # base64-encoded

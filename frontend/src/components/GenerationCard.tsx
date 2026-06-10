@@ -6,6 +6,8 @@ import type { Generation, FeedbackSignal } from "../api/client";
 import { approveGeneration, rejectGeneration } from "../api/client";
 import FeedbackModal from "./FeedbackModal";
 
+const PREVIEW_URL = "https://react-markdown-preview-web-alpha.earlywave.in/markdown-preview";
+
 interface Props {
   gen: Generation;
   onUpdate: () => void;
@@ -22,6 +24,14 @@ export default function GenerationCard({ gen, onUpdate }: Props) {
   const [showFeedback, setShowFeedback] = useState(false);
   const [score, setScore] = useState("");
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (!gen.output_text) return;
+    await navigator.clipboard.writeText(gen.output_text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const handleApprove = async () => {
     setLoading(true);
@@ -64,6 +74,28 @@ export default function GenerationCard({ gen, onUpdate }: Props) {
           {gen.token_cost_usd !== null && gen.token_cost_usd !== undefined && (
             <span className="text-xs text-slate-400">${gen.token_cost_usd.toFixed(4)}</span>
           )}
+
+          {/* Toolbar — right side */}
+          <div className="ml-auto flex items-center gap-2">
+            {gen.output_text && (
+              <button
+                onClick={handleCopy}
+                title="Copy markdown to clipboard"
+                className="px-3 py-1 text-xs border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                {copied ? "✓ Copied" : "Copy MD"}
+              </button>
+            )}
+            <a
+              href={PREVIEW_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open markdown preview tool"
+              className="px-3 py-1 text-xs border border-indigo-300 text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors"
+            >
+              Open preview ↗
+            </a>
+          </div>
         </div>
 
         {/* Reading material */}

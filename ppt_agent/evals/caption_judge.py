@@ -37,47 +37,50 @@ from openai import OpenAI
 # ── Tier 1: structural checks per skill ───────────────────────────────────────
 
 _TIER1: dict[str, list[str]] = {
+    # Format is topic-driven so section names vary — only check structural invariants
+    "deck_reading": [
+        "## ",          # at least one H2 section
+        "| --- |",      # at least one markdown table
+        "**",           # bold used for key terms
+        "Exception",    # exception/restriction section present (any casing)
+    ],
     "concept_explainer": [
-        "<IndexList>",
-        "<Section",
-        "<SubSection>",
-        "<MultiLineNote>",
-        "<details>",
-        "<HighlightedText>",
-        "Answer:",
-        "Explanation:",
+        "## ",
+        "| --- |",
+        "**",
+        "Exception",
     ],
     "code_walkthrough": [
-        "<IndexList>",
-        "<Section",
+        "## ",
         "```",
-        "Answer:",
-        "Explanation:",
+        "**",
     ],
     "diagram_describer": [
-        "<Section",
-        "Answer:",
-        "Explanation:",
+        "## ",
+        "**",
     ],
     "figure_caption": [
-        "<Section",
+        "## ",
+        "**",
     ],
     "quiz_generator": [
+        "**Q1.**",
         "A)",
         "B)",
         "C)",
         "D)",
-        "Answer:",
-        "Explanation:",
+        "**Answer:**",
+        "**Explanation:**",
     ],
 }
 
 _MIN_LENGTH: dict[str, int] = {
-    "concept_explainer": 1500,
-    "code_walkthrough": 500,
-    "diagram_describer": 500,
-    "figure_caption": 100,
-    "quiz_generator": 300,
+    "deck_reading": 1200,
+    "concept_explainer": 1200,
+    "code_walkthrough": 800,
+    "diagram_describer": 800,
+    "figure_caption": 200,
+    "quiz_generator": 400,
 }
 
 _REFUSALS = ["I cannot generate", "I'm sorry, I cannot", "I don't have enough information"]
@@ -104,29 +107,46 @@ def _tier1_check(skill: str, output: str) -> tuple[bool, list[str]]:
 # ── Tier 2: LLM rubric ────────────────────────────────────────────────────────
 
 _RUBRIC_PROMPT: dict[str, str] = {
-    "concept_explainer": """
-You are evaluating a reading material document generated for English verbal ability placement test prep.
-The audience is beginner-to-intermediate learners preparing for IT company placement tests.
+    "deck_reading": """
+You are evaluating a reading material for English grammar or verbal ability placement test prep.
+Audience: beginner-to-intermediate IT placement test candidates.
 
-Evaluate the OUTPUT below on a scale of 1–5 for each criterion:
-1. Clarity — Is the topic explained clearly to a beginner? (1=very unclear, 5=very clear)
-2. Format — Does it have IndexList, 5 Sections, SubSections with 3 collapsible examples each, MultiLineNote? (1=missing most, 5=complete)
-3. Examples — Do all examples use product team / software workplace scenarios? (1=none, 5=all)
-4. Explanations — Does each example explain why the correct answer is right AND why each wrong option is wrong? (1=missing, 5=thorough)
-5. Tone — Is it professional yet approachable, free of jargon, no filler phrases? (1=poor, 5=excellent)
+The format is TOPIC-DRIVEN — section names vary by topic. What matters is quality, not specific section names.
+Expected invariants: markdown tables, bold key terms, plain example sentences (no MCQ), exception/restriction cases section.
+
+Evaluate on a scale of 1–5:
+1. Clarity — Is every concept explained clearly for a complete beginner?
+2. Tables — Are tables used for comparisons, type classifications, tense/pattern charts, and usage contexts?
+3. Coverage — Definition, core rules, usage contexts, variations, exception cases all covered?
+4. Examples — Plain example sentences, accurate, shown in General/Academic/Professional contexts where relevant?
+5. Tone — Simple, second-person, conversational but professional, no filler?
 
 Return ONLY this JSON (no other text):
+{"scores": [s1, s2, s3, s4, s5], "avg": <average>, "reason": "<one sentence>"}
+""",
+    "concept_explainer": """
+You are evaluating a reading material for English grammar or verbal ability placement test prep.
+Format: topic-driven (section names vary). Invariants: tables, bold terms, plain examples, exception section.
+
+Evaluate on a scale of 1–5:
+1. Clarity — Concept explained clearly to a beginner?
+2. Tables — Tables used for comparisons, patterns, or usage contexts?
+3. Examples — Plain sentences (no MCQ), accurate and varied?
+4. Coverage — Definition, rules, exceptions covered?
+5. Tone — Conversational, second-person?
+
+Return ONLY this JSON:
 {"scores": [s1, s2, s3, s4, s5], "avg": <average>, "reason": "<one sentence>"}
 """,
     "code_walkthrough": """
 You are evaluating a code walkthrough reading material.
 
 Evaluate on a scale of 1–5:
-1. Code explanation — Are code blocks properly fenced and explained line by line? (1=poor, 5=excellent)
-2. Format — Does it follow the required section structure? (1=missing, 5=complete)
-3. Examples — Do examples show correct vs incorrect code usage with workplace context? (1=none, 5=thorough)
-4. Clarity — Can a beginner follow the explanation? (1=no, 5=yes)
-5. Explanations — Are wrong answer explanations clear? (1=missing, 5=thorough)
+1. Code explanation — Fenced code blocks, step-by-step explanation?
+2. Format — Question-style H2 headers, sub-concepts, tables?
+3. Examples — Wrong → correct code with explanation?
+4. Clarity — Can a beginner follow it?
+5. Exceptions — Common mistakes section present?
 
 Return ONLY this JSON:
 {"scores": [s1, s2, s3, s4, s5], "avg": <average>, "reason": "<one sentence>"}

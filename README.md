@@ -1,6 +1,6 @@
 # RMG — Reading Material Generator
 
-An **agentic, self-improving pipeline** that converts PowerPoint presentations (or Google Slides) into structured reading material documents. Upload a deck, get a fully formatted, reviewable reading material in one LLM call. Reviewers approve or reject it; every rejection triggers automatic prompt optimisation via DSPy/GEPA so the system improves over time.
+An **agentic, self-improving pipeline** that converts PowerPoint presentations (or Google Slides) into structured reading material documents. Upload a deck, get a fully formatted, reviewable reading material in one LLM call. Reviewers approve or reject it; every rejection triggers automatic prompt optimisation so the system improves over time.
 
 ---
 
@@ -11,23 +11,27 @@ An **agentic, self-improving pipeline** that converts PowerPoint presentations (
 3. [Tech Stack](#tech-stack)
 4. [Project Structure](#project-structure)
 5. [How It Works — End to End](#how-it-works--end-to-end)
-6. [Database Schema](#database-schema)
-7. [API Reference](#api-reference)
-8. [Environment Variables](#environment-variables)
-9. [Local Setup](#local-setup)
-10. [Running the Server](#running-the-server)
-11. [Frontend](#frontend)
-12. [Self-Improving Prompt System (DSPy + GEPA)](#self-improving-prompt-system-dspy--gepa)
-13. [Shadow A/B Testing](#shadow-ab-testing)
-14. [Memory System](#memory-system)
-15. [Circuit Breaker & Repair Queue](#circuit-breaker--repair-queue)
-16. [Ops Monitoring & Auto-Rollback](#ops-monitoring--auto-rollback)
-17. [Eval Pipeline (PromptFoo)](#eval-pipeline-promptfoo)
-18. [Running Tests](#running-tests)
-19. [Content Quality Guidelines](#content-quality-guidelines)
-20. [Markdown Conversion Guidelines](#markdown-conversion-guidelines)
-21. [Guidelines Alignment — Application Cross-Check](#guidelines-alignment--application-cross-check)
-22. [Key Design Decisions](#key-design-decisions)
+6. [Source Content Grounding](#source-content-grounding)
+7. [Alignment Validator](#alignment-validator)
+8. [Book Ingestion Pipeline](#book-ingestion-pipeline)
+9. [Topic-Driven Format](#topic-driven-format)
+10. [Database Schema](#database-schema)
+11. [API Reference](#api-reference)
+12. [Environment Variables](#environment-variables)
+13. [Local Setup](#local-setup)
+14. [Running the Server](#running-the-server)
+15. [Frontend](#frontend)
+16. [Self-Improving Prompt System (DSPy + GEPA)](#self-improving-prompt-system-dspy--gepa)
+17. [Shadow A/B Testing](#shadow-ab-testing)
+18. [Memory System](#memory-system)
+19. [Circuit Breaker & Repair Queue](#circuit-breaker--repair-queue)
+20. [Ops Monitoring & Auto-Rollback](#ops-monitoring--auto-rollback)
+21. [Eval Pipeline (PromptFoo)](#eval-pipeline-promptfoo)
+22. [Running Tests](#running-tests)
+23. [Content Quality Guidelines](#content-quality-guidelines)
+24. [Markdown Conversion Guidelines](#markdown-conversion-guidelines)
+25. [Guidelines Alignment — Application Cross-Check](#guidelines-alignment--application-cross-check)
+26. [Key Design Decisions](#key-design-decisions)
 
 ---
 
@@ -39,57 +43,67 @@ An **agentic, self-improving pipeline** that converts PowerPoint presentations (
 | Google Slides URL | One complete reading material document in Markdown |
 | Direct `.pptx` URL | One complete reading material document in Markdown |
 
-The generated reading material covers:
-- **Overview** — what the topic is and why it matters
-- **Subtopics & Examples** — 3–6 subtopics with Easy / Medium / Hard worked examples in workplace scenarios
-- **How to Prepare** — step-by-step study advice
-- **How to Score** — a table of common situations and strategies
-- **Where to Practise** — online platforms and books
+The generated reading material is **topic-driven**, not a fixed template. The LLM chooses a format appropriate to the topic type:
 
-After generation, a human reviewer approves or rejects the output. Rejections are fed into an automatic prompt optimiser that improves future generations.
+- **Grammar rule topics** (active/passive voice, tenses, articles) — definition → rule → transformation table → exceptions
+- **Communication topics** (fillers, intonation, sentence stress) — definition → usage examples table → types → placement → register (General / Academic / Professional) → exceptions
+
+All outputs use:
+- H1 title, H2/H3 sections, markdown tables for every comparison
+- `**bold**` for key terms (never `<b>` HTML)
+- Plain example sentences — no MCQ questions
+- A mandatory exception/restriction section at the end
+- Image placeholders as visible blockquotes: `> 📷 **Image:** *[description]*` (replace with real `<img>` S3 URLs before publishing)
+
+After generation, a human reviewer approves or rejects the output. Rejections feed into an automatic prompt optimiser that improves future generations.
 
 ---
 
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         UPLOAD                                  │
-│   .pptx file  ──┐                                               │
-│   Google Slides ─┼──► slide_parser.py ──► ParsedSlide[]        │
-│   Direct URL  ──┘                              │                │
-└───────────────────────────────────────────────┼─────────────────┘
-                                                 │
-                                    ┌────────────▼────────────┐
-                                    │    deck_compiler.py      │
-                                    │  (ONE LLM call per deck) │
-                                    │  text-only prompt with   │
-                                    │  all slide content       │
-                                    └────────────┬────────────┘
-                                                 │
-                                    ┌────────────▼────────────┐
-                                    │   OpenRouter / Claude    │
-                                    │  anthropic/claude-       │
-                                    │  sonnet-4-6              │
-                                    └────────────┬────────────┘
-                                                 │
-                              ┌──────────────────▼───────────────────┐
-                              │          PostgreSQL + pgvector        │
-                              │  generations table  (status=pending)  │
-                              └──────────────────┬───────────────────┘
-                                                 │
-                              ┌──────────────────▼───────────────────┐
-                              │         React Review UI               │
-                              │   Approve ─────────► embed output    │
-                              │   Reject  ──┬───────► record feedback │
-                              │             └───────► GEPA optimizer  │
-                              └──────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                            UPLOAD                                   │
+│   .pptx file  ──┐                                                   │
+│   Google Slides ─┼──► slide_parser.py ──► ParsedSlide[]            │
+│   Direct URL  ──┘                              │                    │
+└────────────────────────────────────────────────┼─────────────────── ┘
+                                                  │
+                         ┌────────────────────────▼─────────────────┐
+                         │           deck_compiler.py                │
+                         │       (ONE LLM call per deck)             │
+                         │                                           │
+                         │  Slide TITLES only (no body text)         │
+                         │         +                                 │
+                         │  Source passages  ─────────────────────── ┤
+                         │  (curated manually via UI or auto-        │
+                         │   retrieved from books/ via pgvector)     │
+                         └────────────────────────┬─────────────────┘
+                                                  │
+                         ┌────────────────────────▼─────────────────┐
+                         │    OpenRouter → anthropic/claude-sonnet-4-6│
+                         │           max_tokens = 8,192              │
+                         └────────────────────────┬─────────────────┘
+                                                  │
+                    ┌─────────────────────────────▼──────────────────────┐
+                    │              PostgreSQL + pgvector                  │
+                    │  generations ── source_content ── book_chunks      │
+                    └─────────────────────────────┬──────────────────────┘
+                                                  │
+                    ┌─────────────────────────────▼──────────────────────┐
+                    │              React Review UI                        │
+                    │  Approve ────────────► embed output                │
+                    │  Reject  ──┬──────────► record feedback            │
+                    │            └──────────► GEPA optimizer             │
+                    │  Source passages ──── alignment badge + budget bar │
+                    └────────────────────────────────────────────────────┘
 ```
 
 **Background systems running at all times:**
 - **Ops job** (every 15 min) — shadow A/B promotion, alert checks, auto-rollback
 - **G-Eval scorer** — auto-scores approved outputs via DSPy ChainOfThought
 - **Repair queue** — retries failed generations up to `MAX_RETRIES` times
+- **Alignment validator** — scores each source passage against its topic on upload
 
 ---
 
@@ -98,7 +112,8 @@ After generation, a human reviewer approves or rejects the output. Rejections ar
 | Layer | Technology |
 |---|---|
 | **Backend API** | FastAPI + Uvicorn (async) |
-| **LLM** | OpenRouter → `anthropic/claude-sonnet-4-6` via OpenAI-compatible SDK |
+| **LLM — generation** | OpenRouter → `anthropic/claude-sonnet-4-6` via OpenAI-compatible SDK |
+| **LLM — alignment scoring** | OpenRouter → `anthropic/claude-haiku-4-5-20251001` |
 | **Embeddings** | OpenAI `text-embedding-3-small` (1536 dimensions) |
 | **Database** | PostgreSQL 16 + pgvector extension (IVFFlat cosine index) |
 | **ORM** | SQLAlchemy 2.0 async (asyncpg driver) |
@@ -108,6 +123,7 @@ After generation, a human reviewer approves or rejects the output. Rejections ar
 | **Eval Pipeline** | PromptFoo (Node.js) + Python subprocess provider |
 | **Frontend** | React 18 + Vite + TypeScript + Tailwind CSS + TanStack Query |
 | **Markdown Rendering** | `react-markdown` + `remark-gfm` + `rehype-raw` |
+| **Book parsing** | `pdfplumber` (PDF), `ebooklib` + `beautifulsoup4` (EPUB), plain text |
 | **Containerisation** | Docker Compose (postgres + redis) |
 | **Testing** | pytest + pytest-asyncio + fakeredis |
 
@@ -122,6 +138,10 @@ d:\RMG\
 ├── slide_classifier.py          # Classifies slide type (CONCEPT / CODE / DIAGRAM etc.)
 ├── seed_db.py                   # Seeds initial prompt versions into the database
 ├── reseed_prompts.py            # Updates existing prompt versions after format changes
+├── ingest_books.py              # Ingests books from books/ → book_chunks table
+│
+├── books/                       # Drop your .pdf / .epub / .txt books here
+│   └── .gitkeep
 │
 ├── ppt_agent/
 │   ├── llm.py                   # Central LLM wrapper — OpenRouter via OpenAI SDK
@@ -131,19 +151,22 @@ d:\RMG\
 │   │   ├── deps.py              # Dependency injection — get_db(), get_redis()
 │   │   ├── generate.py          # POST /generate/file  POST /generate/url
 │   │   ├── review.py            # POST /review/{id}/approve|reject|feedback
+│   │   ├── source_content.py    # CRUD for source passages (add, list, delete, validate)
 │   │   ├── ops.py               # GET /ops/dashboard  GET /ops/alerts + background job
 │   │   └── export.py            # POST /export/{deck_id}
 │   │
 │   ├── config/
 │   │   ├── settings.py          # Pydantic-settings — all env vars in one place
-│   │   └── format_schema.py     # The FORMAT_TEMPLATE — pure markdown output spec
+│   │   └── format_schema.py     # Topic-driven format spec (Pattern A / Pattern B)
 │   │
 │   ├── db/
-│   │   ├── models.py            # SQLAlchemy ORM — 6 tables
+│   │   ├── models.py            # SQLAlchemy ORM — 8 tables
 │   │   └── session.py           # Async session factory + get_db_session() context manager
 │   │
 │   ├── skills/
 │   │   ├── deck_compiler.py     # ONE LLM call per deck — builds reading material
+│   │   ├── alignment_validator.py  # Per-passage Haiku scoring (pass ≥0.7, warn 0.5–0.69)
+│   │   ├── book_retriever.py    # pgvector similarity search over book_chunks
 │   │   ├── router.py            # Routes slides to the right skill (legacy per-slide path)
 │   │   ├── concept_explainer.py # Skill: explain a concept slide
 │   │   ├── code_walkthrough.py  # Skill: walk through a code slide
@@ -173,44 +196,41 @@ d:\RMG\
 │   │   ├── geval.py             # DSPy G-Eval scorer (0.0–1.0 quality score)
 │   │   └── prompt_optimizer.py  # GEPA optimizer — runs when ≥10 labelled examples exist
 │   │
-│   ├── evals/
-│   │   ├── promptfoo.yaml       # PromptFoo eval config
-│   │   ├── caption_judge.py     # PromptFoo Python subprocess provider
-│   │   ├── run_regression.py    # Run PromptFoo + write results to DB
-│   │   ├── test_case_generator.py  # Auto-generate regression tests on rejection
-│   │   └── regression_suite/
-│   │       └── auto_generated.yaml  # Growing test case library
-│   │
-│   └── tests/
-│       ├── conftest.py
-│       ├── test_api.py
-│       ├── test_circuit_breaker.py
-│       ├── test_evals.py
-│       ├── test_image_pipeline.py
-│       ├── test_memory.py
-│       └── test_slide_parser.py
+│   └── evals/
+│       ├── promptfoo.yaml       # PromptFoo eval config
+│       ├── caption_judge.py     # PromptFoo Python subprocess provider
+│       ├── run_regression.py    # Run PromptFoo + write results to DB
+│       ├── test_case_generator.py  # Auto-generate regression tests on rejection
+│       └── regression_suite/
+│           └── auto_generated.yaml  # Growing test case library
 │
 ├── migrations/
 │   ├── env.py                   # Alembic env — strips +asyncpg for sync migrations
 │   ├── script.py.mako
 │   └── versions/
-│       ├── 0001_initial.py      # All 6 tables + pgvector IVFFlat index
-│       └── 0002_add_deck_reading.py  # Adds deck_reading to skill_type CHECK constraint
+│       ├── 0001_initial.py      # All core tables + pgvector IVFFlat index
+│       ├── 0002_add_deck_reading.py   # Adds deck_reading to skill_type CHECK
+│       ├── 0003_source_content.py     # source_content table + alignment columns
+│       ├── 0004_schema_fixes.py       # alignment_reason column + 13 feedback signals
+│       └── 0005_book_chunks.py        # book_chunks table with Vector(1536)
 │
-├── frontend/                    # React review UI (see Frontend section)
+├── frontend/
 │   ├── src/
 │   │   ├── pages/
-│   │   │   ├── UploadPage.tsx   # Drag-and-drop PPTX upload + Google Slides URL
-│   │   │   ├── ReviewPage.tsx   # Show generated reading material, Approve / Reject
-│   │   │   └── DashboardPage.tsx  # Per-skill stats, alerts, repair queue
+│   │   │   ├── UploadPage.tsx          # Drag-and-drop PPTX upload + Google Slides URL
+│   │   │   ├── ReviewPage.tsx          # Generated material review + source passages link
+│   │   │   ├── SourceContentPage.tsx   # Add/view/delete source passages, budget bar
+│   │   │   └── DashboardPage.tsx       # Per-skill stats, alerts, repair queue
 │   │   ├── components/
-│   │   │   ├── GenerationCard.tsx   # Renders markdown output with Approve/Reject
-│   │   │   ├── FeedbackModal.tsx    # Signal picker for rejection feedback
+│   │   │   ├── GenerationCard.tsx      # Renders markdown, Copy MD, Open Preview buttons
+│   │   │   ├── FeedbackModal.tsx       # 13-signal rejection feedback picker
+│   │   │   ├── AlignmentBadge.tsx      # pass/warn/fail badge with score tooltip
+│   │   │   ├── PassageForm.tsx         # Collapsible form to add a source passage
 │   │   │   └── Layout.tsx
-│   │   └── api/client.ts        # Typed axios wrapper for all API endpoints
+│   │   └── api/client.ts              # Typed axios wrapper for all API endpoints
 │   └── ...
 │
-├── render.yaml                  # Render.com deployment — all 4 services defined
+├── render.yaml                  # Render.com deployment — all services defined
 ├── start.sh                     # Render startup script — migrate + seed + uvicorn
 ├── docker-compose.yml           # PostgreSQL 16 (pgvector) + Redis 7
 ├── pyproject.toml               # Python dependencies + pytest config
@@ -232,12 +252,17 @@ POST /generate/url    (Google Slides URL or direct .pptx URL)
 ### 2. Parse
 `slide_parser.py` extracts from every slide:
 - `title` — slide heading
-- `body_text` — all text frames concatenated
+- `body_text` — all text frames concatenated (NOT sent to the LLM — titles only)
 - `speaker_notes` — presenter notes
 - `embedded_images` — list of `{base64_data, mime_type, md5}`
 
 ### 3. Compile — ONE LLM call
-`deck_compiler.py` concatenates all slide titles, body text, and speaker notes into a single prompt block and makes **one** call to `claude-sonnet-4-6` via OpenRouter with `max_tokens=8192`. No per-slide generation — this keeps cost and latency low.
+`deck_compiler.py` builds the prompt from:
+- **Slide titles only** — body text is intentionally excluded to prevent raw PPT content from leaking into the output
+- **Source passages** — curated reference material added by content developers (see [Source Content Grounding](#source-content-grounding))
+- **Book chunks** (optional) — auto-retrieved from ingested books when `USE_BOOK_RETRIEVAL=true`
+
+One call to `claude-sonnet-4-6` via OpenRouter with `max_tokens=8192`. Cost ≈ $0.01–0.03 per deck.
 
 ### 4. Store
 The output is saved as a `Generation` row with:
@@ -253,11 +278,163 @@ The React UI fetches the pending `deck_reading` generation and renders it as for
 |---|---|
 | **Approve** | `status → approved`, embedding computed in background, G-Eval auto-score written |
 | **Reject** | `status → rejected`, feedback signals recorded, regression test generated, GEPA optimizer triggered |
+| **Copy MD** | Copies the raw Markdown to clipboard |
+| **Open Preview** | Opens the Markdown in an external preview tool |
 
 ### 6. Self-improve
 - Every rejection adds a labelled example to the GEPA training set
 - When ≥ 10 labelled examples exist, the GEPA optimizer rewrites the `deck_reading` prompt and stores it as a `candidate` prompt version
-- The ops background job promotes shadow versions that beat the active version by ≥ 5% (`SHADOW_PROMOTION_MARGIN`)
+- The ops background job promotes shadow versions that beat the active version by ≥ 5%
+
+---
+
+## Source Content Grounding
+
+The generation is grounded in curated reference passages — the LLM **cannot invent facts** not present in the provided passages.
+
+### How it works
+
+1. A content developer opens the **Source Passages** page for a deck (`/source/:deckId`)
+2. They add passages from grammar books, official style guides, or other trusted sources
+3. Each passage is immediately scored by the **Alignment Validator** (see below)
+4. At generation time, all passages for the deck are injected into the prompt as the sole factual basis
+5. A **budget bar** in the UI shows how much of the 12,000-character limit is used
+
+### Source passage budget
+
+| Limit | Value |
+|---|---|
+| Max chars per passage | 2,000 |
+| Max chars per deck (all passages combined) | 12,000 (~3,000 tokens) |
+
+Exceeding the deck budget raises a `SourceBudgetExceeded` error before the LLM call. The UI shows the budget bar turning red and the generation button is blocked.
+
+### Source content API
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/source-content/{deck_id}` | List all passages for a deck |
+| `POST` | `/source-content/{deck_id}` | Add a passage (triggers alignment scoring) |
+| `DELETE` | `/source-content/{passage_id}` | Remove a passage |
+| `POST` | `/source-content/{deck_id}/validate` | Re-run alignment scoring on all passages |
+
+---
+
+## Alignment Validator
+
+Every source passage is automatically scored for topical relevance before it is used in generation.
+
+### Scoring
+
+The validator calls `anthropic/claude-haiku-4-5-20251001` with the passage text and the topic label. It returns a score `0.0–1.0` and a human-readable reason.
+
+| Score | Verdict | Badge colour | Meaning |
+|---|---|---|---|
+| ≥ 0.70 | `pass` | Green | Passage is on-topic and suitable |
+| 0.50–0.69 | `warn` | Yellow | Partially relevant — review before use |
+| < 0.50 | `fail` | Red | Off-topic — consider replacing |
+
+### In the UI
+
+The **AlignmentBadge** component shows the verdict and score on each passage card. Hovering reveals the full reason from the model.
+
+### Non-blocking
+
+A failing alignment score does **not** block generation. It is advisory only — the content developer decides whether to keep or replace the passage.
+
+---
+
+## Book Ingestion Pipeline
+
+Add your own grammar books, style guides, or reference texts to the `books/` folder. The system will extract, chunk, embed, and store them for automatic retrieval during generation.
+
+### Supported formats
+
+| Format | Extractor |
+|---|---|
+| `.pdf` | `pdfplumber` — text extracted per page |
+| `.epub` | `ebooklib` + `BeautifulSoup` — text extracted per chapter |
+| `.txt` / `.md` | Direct read with section detection |
+
+### File naming convention
+
+Name your files as `Title - Author.ext` so metadata is auto-extracted:
+
+```
+Grammar in Use - Raymond Murphy.pdf
+Swan Practical English Usage - Michael Swan.epub
+Sentence Stress Notes.txt
+```
+
+### Running the ingestion script
+
+```bash
+# Process all new files in books/
+python ingest_books.py
+
+# See what is already indexed
+python ingest_books.py --list
+
+# Process a single file
+python ingest_books.py --file "Grammar in Use - Raymond Murphy.pdf"
+
+# Force re-process all files
+python ingest_books.py --reindex
+```
+
+The script:
+1. Extracts text from each book
+2. Splits into ~1,500-char overlapping chunks at sentence boundaries
+3. Skips files already indexed (by filename)
+4. Embeds each chunk via `text-embedding-3-small`
+5. Stores chunks in the `book_chunks` table with pgvector embeddings
+
+### Enabling auto-retrieval
+
+Set `USE_BOOK_RETRIEVAL=true` in your `.env`. When a deck has **no manually curated passages**, the system will automatically retrieve the top-6 most relevant book chunks using pgvector cosine similarity and inject them as the reference passages for generation.
+
+If manual passages exist, book retrieval is skipped — manual passages always take priority.
+
+---
+
+## Topic-Driven Format
+
+The output format is not a rigid template. The LLM selects the pattern that best fits the topic.
+
+### Pattern A — Grammar Rule Topics
+Used for: active/passive voice, reported speech, conditionals, articles, tenses, etc.
+
+```
+# [Topic Title]
+## Definition
+## Grammar Rule
+   | Tense | Active | Passive |  (transformation table)
+## How to Form It
+## Common Uses
+## Exceptions and Restrictions
+```
+
+### Pattern B — Communication/Pragmatics Topics
+Used for: fillers, intonation, sentence stress, register, hedging, discourse markers, etc.
+
+```
+# [Topic Title]
+## What Is It?
+## Types / Categories     (with examples table)
+## Placement and Usage
+## General / Academic / Professional Usage
+## Exceptions and Restrictions
+```
+
+### Format invariants (apply to both patterns)
+
+- H1 title, H2/H3 sections, horizontal rules between major sections
+- Markdown tables for **all** comparisons — no prose lists for structured data
+- `**bold**` for key terms — never `<b>` HTML tags
+- Plain example sentences — no MCQ or quiz items
+- Exception/restriction section mandatory at the end
+- Image placeholder format: `> 📷 **Image:** *[description of image needed here]*`
+- Minimum ~1,200 words per document
 
 ---
 
@@ -279,6 +456,32 @@ The React UI fetches the pending `deck_reading` generation and renders it as for
 | `is_shadow` | BOOL | True for shadow A/B test generations |
 | `embedding` | Vector(1536) | pgvector embedding for similarity search |
 
+### `source_content`
+| Column | Type | Description |
+|---|---|---|
+| `id` | UUID PK | |
+| `deck_id` | UUID | Which deck this passage belongs to |
+| `topic_label` | TEXT | The topic or subtopic this passage covers |
+| `source_title` | TEXT | Book title or source name |
+| `page_ref` | TEXT | Page number / section reference |
+| `passage_text` | TEXT (≤2000) | The curated reference text |
+| `author` | TEXT | Author of the source |
+| `alignment_score` | NUMERIC(4,3) | 0.0–1.0 relevance score from Haiku |
+| `alignment_verdict` | TEXT | `pass \| warn \| fail` |
+| `alignment_reason` | TEXT | Human-readable reason from the scorer |
+
+### `book_chunks`
+| Column | Type | Description |
+|---|---|---|
+| `id` | UUID PK | |
+| `book_title` | TEXT | Extracted from filename |
+| `author` | TEXT | Extracted from filename (after ` - `) |
+| `file_name` | TEXT | Original filename — used for dedup |
+| `chapter` | TEXT | Chapter or section heading |
+| `chunk_text` | TEXT | ~1,500-char text chunk |
+| `chunk_index` | INT | Position of chunk within the book |
+| `embedding` | Vector(1536) | pgvector embedding for similarity search |
+
 ### `prompt_versions`
 | Column | Type | Description |
 |---|---|---|
@@ -291,7 +494,7 @@ The React UI fetches the pending `deck_reading` generation and renders it as for
 | `avg_rubric_score` | NUMERIC | Average PromptFoo rubric score (1–5) |
 
 ### `feedback`
-Stores structured signals from reviewers:
+Stores structured signals from reviewers. Thirteen signal types:
 
 | `signal_type` | Meaning |
 |---|---|
@@ -300,10 +503,14 @@ Stores structured signals from reviewers:
 | `wrong_tone` | Tone doesn't match audience |
 | `missing_example` | Missing worked examples |
 | `factual_error` | Contains factual mistakes |
-| `format_violation` | Format template not followed |
+| `format_violation` | Format spec not followed |
 | `unnecessary_diagram` | Diagram added where not needed |
 | `needs_diagram` | Should have a diagram |
 | `unclear_explanation` | Explanation is confusing |
+| `wrong_difficulty_level` | Level doesn't match the learner profile |
+| `missing_common_errors` | No common error / L1-interference section |
+| `missing_correction` | Error shown but correction not provided |
+| `diagram_incorrect` | Diagram content is factually wrong |
 
 ### `repair_queue`
 Tracks failed generations. A generation moves here when its `retry_count` reaches `MAX_RETRIES`.
@@ -335,6 +542,26 @@ System-level alerts for score drops, deep repair queues, and old unresolved repa
 }
 ```
 
+### Source Content
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/source-content/{deck_id}` | List all passages for a deck |
+| `POST` | `/source-content/{deck_id}` | Add a passage (triggers alignment scoring immediately) |
+| `DELETE` | `/source-content/{passage_id}` | Remove a passage |
+| `POST` | `/source-content/{deck_id}/validate` | Re-run alignment scoring on all passages |
+
+**Add passage body**
+```json
+{
+  "topic_label": "Active Voice",
+  "passage_text": "The active voice is used when...",
+  "source_title": "Grammar in Use",
+  "page_ref": "42",
+  "author": "Raymond Murphy"
+}
+```
+
 ### Review
 
 | Method | Path | Body |
@@ -347,10 +574,10 @@ System-level alerts for score drops, deep repair queues, and old unresolved repa
 **Feedback signal shape**
 ```json
 {
-  "signal_type": "too_short",
+  "signal_type": "missing_common_errors",
   "severity": 2,
-  "section_id": "overview",
-  "reviewer_note": "Only one sentence in the overview"
+  "section_id": "active-voice",
+  "reviewer_note": "No L1 interference examples for Indian English learners"
 }
 ```
 
@@ -385,8 +612,9 @@ Copy `.env.example` to `.env` and fill in the values:
 ANTHROPIC_API_KEY=sk-or-v1-...
 LLM_BASE_URL=https://openrouter.ai/api/v1
 GENERATION_MODEL=anthropic/claude-sonnet-4-6
+ALIGNMENT_MODEL=anthropic/claude-haiku-4-5-20251001
 
-# OpenAI — only needed for text-embedding-3-small
+# OpenAI — for text-embedding-3-small (book ingestion + similarity search)
 OPENAI_API_KEY=sk-...
 
 # Google Slides — base64-encoded service account JSON
@@ -399,17 +627,29 @@ DATABASE_URL=postgresql+asyncpg://rmg:rmg@localhost:5434/rmgdb
 # Redis
 REDIS_URL=redis://localhost:6379/0
 
+# Source content grounding
+ALIGNMENT_THRESHOLD=0.7         # below this score → "fail" verdict
+MAX_SOURCE_CHARS_PER_DECK=12000 # total chars across all passages per deck
+
+# Book retrieval (requires running ingest_books.py first)
+USE_BOOK_RETRIEVAL=false         # set true to auto-retrieve from books/
+BOOK_RETRIEVAL_TOP_K=6           # max chunks to retrieve per deck
+BOOKS_DIR=books                  # relative path to your books folder
+
 # Tuning
 MAX_RETRIES=3
 PATTERN_CONFIDENCE_THRESHOLD=0.75
 SHADOW_PROMOTION_MARGIN=0.05
 MIN_EXAMPLES_CONSTANT=20
 
-# Shadow A/B config per skill
-SHADOW_CONFIG_JSON={"concept_explainer":{"traffic_pct":0.2,"min_slides":50},"code_walkthrough":{"traffic_pct":0.2,"min_slides":100},"diagram_describer":{"traffic_pct":0.3,"min_slides":40},"figure_caption":{"traffic_pct":0.3,"min_slides":40}}
+# Shadow A/B config per skill (optional)
+SHADOW_CONFIG_JSON={"concept_explainer":{"traffic_pct":0.2,"min_slides":50}}
+
+# CORS — comma-separated, or * for open
+CORS_ORIGINS=*
 ```
 
-> **Never commit `.env`** — it contains your API keys. The `.gitignore` already excludes it.
+> **Never commit `.env`** — it contains your API keys and the service account private key. The `.gitignore` already excludes it.
 
 ---
 
@@ -440,16 +680,16 @@ pip install -e ".[dev]"
 
 ```bash
 cp .env.example .env
-# Edit .env — add your ANTHROPIC_API_KEY at minimum
+# Edit .env — add ANTHROPIC_API_KEY and OPENAI_API_KEY at minimum
 ```
 
 ### Step 4 — Run database migrations
 
 ```bash
-alembic upgrade head
+python -m alembic upgrade head
 ```
 
-This creates all 6 tables and the pgvector IVFFlat index.
+This creates all tables and the pgvector IVFFlat index.
 
 ### Step 5 — Seed initial prompts
 
@@ -457,9 +697,19 @@ This creates all 6 tables and the pgvector IVFFlat index.
 python seed_db.py
 ```
 
-This inserts the initial `active` prompt versions for all 6 skill types into `prompt_versions`.
+This inserts the initial `active` prompt versions for all skill types into `prompt_versions`.
 
-### Step 6 — Install frontend dependencies
+### Step 6 — (Optional) Ingest books
+
+Drop any `.pdf`, `.epub`, or `.txt` grammar/reference books into the `books/` folder, then:
+
+```bash
+python ingest_books.py
+```
+
+After ingestion, set `USE_BOOK_RETRIEVAL=true` in `.env` to enable automatic retrieval.
+
+### Step 7 — Install frontend dependencies
 
 ```bash
 cd frontend
@@ -482,8 +732,7 @@ Or use the installed script:
 rmg-server
 ```
 
-The API is available at `http://localhost:8000`.
-Interactive docs: `http://localhost:8000/docs`
+API: `http://localhost:8000` | Docs: `http://localhost:8000/docs`
 
 ### Frontend (React)
 
@@ -492,34 +741,39 @@ cd frontend
 npm run dev
 ```
 
-The UI is available at `http://localhost:5173`.
+UI: `http://localhost:5173`
 
-Vite proxies all `/generate`, `/review`, `/ops`, `/export` requests to the FastAPI server at port 8000.
+Vite proxies all `/generate`, `/review`, `/ops`, `/export`, `/source-content` requests to port 8000.
 
 ---
 
 ## Frontend
 
-Three pages:
-
 ### Upload Page (`/`)
-- Drag-and-drop `.pptx` upload
-- Google Slides URL input
-- Shows a spinner while generation runs (20–40 seconds)
+- Drag-and-drop `.pptx` upload or Google Slides URL input
+- Shows a spinner while generation runs
 - Redirects to `/review/{deck_id}` on success
 
 ### Review Page (`/review/:deckId`)
 - Fetches the `deck_reading` generation for the deck
-- Renders the full Markdown output using `react-markdown` + `remark-gfm`
+- Renders the full Markdown output using `react-markdown` + `remark-gfm` + `rehype-raw`
+- **Copy MD** button — copies raw Markdown to clipboard
+- **Open Preview** link — opens the Markdown in the external preview tool
+- **Source passages** link — navigates to `/source/:deckId` to manage reference passages
 - **Approve** button — optionally override eval score (0–1)
-- **Reject** button — opens FeedbackModal to select signals
-- Shows G-Eval score in the card header once computed
-- Export buttons (PDF, DOCX, Markdown) enabled only after approval
+- **Reject** button — opens FeedbackModal with 13 signal types
+
+### Source Content Page (`/source/:deckId`)
+- Budget bar — green/yellow/red based on character usage vs 12,000-char limit
+- Lists all passages with **AlignmentBadge** (pass/warn/fail + score)
+- Hover over badge to see the scorer's reason
+- **Delete** button per passage
+- **+ Add reference passage** — collapsible form with fields: topic label, passage text (2,000-char max with countdown), source title, page reference, author
 
 ### Dashboard Page (`/dashboard`)
 - Per-skill stats table: total generations, approved, rejected, repair count, avg score, avg cost
-- Open alerts list
-- Repair queue depth
+- `deck_reading` row highlighted — it is the primary skill used by the system
+- Open alerts list and repair queue depth
 
 ---
 
@@ -534,17 +788,13 @@ When a generation is approved, `geval.py` runs in the background:
 3. Returns a float `0.0–1.0` and a reasoning string
 4. Writes the score back to `generations.eval_score`
 
-This means every approved output gets an objective quality score without reviewer effort.
-
 ### GEPA Prompt Optimisation
 
 When a generation is rejected, `prompt_optimizer.py` runs in the background:
 
 1. Queries all labelled `deck_reading` generations (approved = 1.0, rejected = 0.0)
-2. If fewer than 10 examples exist — skips (not enough signal)
-3. If ≥ 10 examples — runs `dspy.teleprompt.GEPA`:
-   - Uses `GEPAFeedbackMetric` as the reward signal
-   - Produces a rewritten system prompt
+2. If fewer than 10 examples — skips (not enough signal)
+3. If ≥ 10 examples — runs `dspy.teleprompt.GEPA` using `GEPAFeedbackMetric` as the reward signal
 4. Stores the result as a new `PromptVersion` with `status = 'candidate'`
 5. The ops background job picks it up and promotes it to `shadow` for A/B testing
 
@@ -564,19 +814,19 @@ This updates all existing `active` prompt versions in the database without inser
 
 Each new prompt candidate goes through shadow testing before becoming active:
 
-1. **Traffic split** — determined **per deck** (not per slide) using `hashlib.md5(deck_id)` → deterministic float. All slides in one deck always go to the same branch.
+1. **Traffic split** — determined **per deck** using `hashlib.md5(deck_id)` → deterministic float. All slides in one deck always go to the same branch.
 
 2. **Config** — per-skill traffic percentage and minimum slide count set in `SHADOW_CONFIG_JSON`:
    ```json
-   {"concept_explainer": {"traffic_pct": 0.2, "min_slides": 50}}
+   {"deck_reading": {"traffic_pct": 0.2, "min_slides": 50}}
    ```
 
 3. **Promotion** — every 15 minutes the ops background job compares:
    ```
    shadow_avg_score - active_avg_score >= SHADOW_PROMOTION_MARGIN (default 0.05)
    ```
-   - If the shadow wins → promoted to `active`, old active → `retired`
-   - If it loses → shadow → `retired`
+   - Shadow wins → promoted to `active`, old active → `retired`
+   - Shadow loses → `retired`
 
 Shadow generations are stored with `is_shadow = True` and excluded from the review UI.
 
@@ -584,13 +834,8 @@ Shadow generations are stored with `is_shadow = True` and excluded from the revi
 
 ## Memory System
 
-The memory layer powers two things: **similar output retrieval** and **pattern promotion**.
-
 ### Similar Output Retrieval
-When generating (legacy per-slide path), `retrieval.py`:
-1. Embeds the slide content using `text-embedding-3-small`
-2. Queries pgvector for the top-5 most similar **approved** past outputs using cosine distance
-3. Returns them as `MemoryContext` — injected into the skill prompt
+`retrieval.py` embeds slide content using `text-embedding-3-small`, then queries pgvector for the top-5 most similar **approved** past outputs. These are injected as `MemoryContext` into skill prompts for the legacy per-slide path.
 
 ### Pattern Memory
 High-severity feedback signals (`severity >= 2` with a reviewer note) are upserted as `pattern_memory` candidates. When a pattern's `example_count` reaches:
@@ -608,14 +853,14 @@ Each skill call is wrapped with `@with_circuit_breaker(skill_type)`:
 
 1. First failure → retry immediately, increment `retry_count`
 2. After `MAX_RETRIES` (default 3) failures → set `status = 'needs_repair'`, insert into `repair_queue`, return `RepairRequired` dataclass
-3. The router checks `isinstance(result, RepairRequired)` and branches
+3. The router checks `isinstance(result, RepairRequired)` and branches accordingly
 4. Repair queue is visible in the dashboard and via `GET /review/repair-queue`
 
 ---
 
 ## Ops Monitoring & Auto-Rollback
 
-The `ops_background_job()` runs every 15 minutes inside the FastAPI lifespan:
+The `ops_background_job()` runs every 15 minutes inside the FastAPI lifespan.
 
 ### Alert Conditions
 
@@ -631,7 +876,6 @@ If a `score_drop` alert is open and the skill has a parent prompt version:
 1. `prompt_store.rollback(skill_type)` promotes the parent back to `active`
 2. Current active → `retired`
 3. Alert marked `resolved = True`
-4. Logged as a warning
 
 Alerts can also be manually resolved via `POST /ops/alerts/{id}/resolve`.
 
@@ -642,12 +886,13 @@ Alerts can also be manually resolved via `POST /ops/alerts/{id}/resolve`.
 PromptFoo runs two tiers of evaluation:
 
 ### Tier 1 — Deterministic (must all pass)
-Per-skill checks run without any LLM call:
-- `concept_explainer` — must contain `key_terms`, length > 200, no `"I cannot"`
-- `code_walkthrough` — must contain ` ``` `, length > 100
-- `diagram_describer` — must contain `relationships`, `key_elements`
-- `figure_caption` — length between 20–300 characters
-- `quiz_generator` — must contain `question`, `answer`
+
+Minimal topic-agnostic checks that apply to any `deck_reading` output:
+- Must contain `## ` (H2 sections)
+- Must contain `| --- |` (at least one markdown table)
+- Must contain `**` (bold terms used)
+- Must contain `Exception` (exception section present)
+- Minimum length: 1,200 characters
 
 ### Tier 2 — LLM Rubric
 `caption_judge.py` is a Python subprocess provider that:
@@ -660,16 +905,12 @@ Average Tier 2 score must be ≥ 3.5 for a prompt to be eligible for promotion.
 ### Running Evals
 
 ```bash
+# Via PromptFoo directly
 npx promptfoo eval --config ppt_agent/evals/promptfoo.yaml
+
+# Or via the regression runner (writes results back to DB)
+python -m ppt_agent.evals.run_regression
 ```
-
-Or trigger via the regression runner:
-
-```bash
-python ppt_agent/evals/run_regression.py
-```
-
-Results are written back to the `prompt_versions` table.
 
 ---
 
@@ -746,74 +987,78 @@ These standards govern how content is structured, formatted, and rendered in Mar
 
 | # | Guideline | Status | How the application covers it |
 |---|---|---|---|
-| 1 | Define target audience and learning objectives | ✅ | `AUDIENCE_PROMPT` specifies beginner-to-intermediate learners targeting TCS/Infosys/Wipro/Cognizant placement tests |
-| 2 | Adapt to learner background | ⚠️ | Audience is hardcoded — no per-deck variation for different learner levels |
+| 1 | Define target audience and learning objectives | ✅ | `AUDIENCE_PROMPT` specifies the learner profile and language level; `ConfigInjection` supports per-deck audience overrides |
+| 2 | Adapt to learner background | ⚠️ | Audience profile is a default — no per-deck variation for different learner levels yet |
 | 3 | Market research on industry trends | ⚠️ | Must be done manually before uploading the source deck — the system does not perform market research |
-| 4 | Verify concepts from trusted sources | ⚠️ | "Where to Practise" lists real resources; content accuracy must be verified by the human reviewer before approving |
-| 5 | Logical flow — basic to advanced | ✅ | `FORMAT_TEMPLATE` enforces: Overview → Subtopics (Easy → Medium → Hard) → Prepare → Score → Practise |
-| 6 | Difficulty aligned to proficiency | ✅ | Easy / Medium / Hard examples enforced per subtopic; placement test audience profile is hardcoded |
-| 7 | Simple, learner-friendly language | ✅ | Prompt enforces conversational but professional second-person voice throughout |
-| 8 | Short paragraphs, summaries, revision sections | ⚠️ | Numbered lists and tables are used; no dedicated Key Takeaways or Quick Recap section |
-| 9 | Definitions, key points, shortcuts | ⚠️ | Each subtopic opens with a definition paragraph and Quick Tip; no standalone Key Points block |
-| 10 | Practical, professional examples | ✅ | Every example must use sprint / bug fix / code review / product launch scenarios — hardcoded rule |
-| 11 | Contextual scenarios, analytical thinking | ✅ | Every MCQ has a workplace scenario + explanation of why the correct answer is right and why distractors are wrong |
-| 12 | Practice exercises after each section | ⚠️ | Three MCQs per subtopic are included; no open-ended or non-MCQ practice activities |
-| 13 | Common learner errors — L1 interference | ❌ | No Common Errors section exists in the current format template |
-| 14 | Corrective guidance in explanations | ✅ | `FORMAT_TEMPLATE` rule: every explanation must state why the correct answer is right and why at least one wrong option is wrong |
-| 15 | Visuals, charts, tables | ⚠️ | How to Score is a table; Quick Tips use styled blockquotes; no concept diagrams or visual grammar aids |
-| 16 | Cross-check accuracy before publishing | ✅ | Human Approve / Reject workflow + G-Eval auto-scoring + Tier-1 structural assertions |
-| 17 | Regular review based on feedback | ✅ | GEPA optimizer rewrites prompts on rejection; feedback signals feed pattern memory; Shadow A/B validates improvements |
+| 4 | Verify concepts from trusted sources | ✅ | Source content grounding forces all facts to come from curated passages; alignment validator scores relevance; human reviewer approves before publishing |
+| 5 | Logical flow — basic to advanced | ✅ | Topic-driven format enforces: definition → rule/types → examples → exceptions as a logical progression |
+| 6 | Difficulty aligned to proficiency | ✅ | Audience prompt specifies language proficiency level; examples must match that level |
+| 7 | Simple, learner-friendly language | ✅ | Prompt enforces plain, direct language appropriate to the audience |
+| 8 | Short paragraphs, summaries, revision sections | ⚠️ | Tables and short paragraphs enforced; no dedicated Quick Recap section yet |
+| 9 | Definitions, key points, shortcuts | ✅ | Every section opens with a definition; key terms in **bold** throughout |
+| 10 | Practical, professional examples | ✅ | Examples use real-world contexts from the audience's domain |
+| 11 | Contextual scenarios, analytical thinking | ✅ | Plain example sentences must show context — not just isolated grammar forms |
+| 12 | Practice exercises after each section | ⚠️ | No mandatory practice exercises in the current format — reviewer can flag with `missing_example` |
+| 13 | Common learner errors — L1 interference | ⚠️ | `missing_common_errors` feedback signal exists; Exception section covers some; dedicated Common Errors section not yet enforced |
+| 14 | Corrective guidance in explanations | ✅ | Exception section shows what NOT to do alongside correct forms |
+| 15 | Visuals, charts, tables | ✅ | Tables mandatory for all comparisons; image placeholders for diagrams; reviewer can flag with `needs_diagram` |
+| 16 | Cross-check accuracy before publishing | ✅ | Human Approve/Reject workflow + G-Eval auto-scoring + Tier-1 structural assertions + alignment validator |
+| 17 | Regular review based on feedback | ✅ | GEPA optimizer rewrites prompts on rejection; 13 feedback signals feed pattern memory; Shadow A/B validates improvements |
 
 ### Markdown Conversion Guidelines
 
 | # | Guideline | Status | How the application covers it |
 |---|---|---|---|
-| 1 | Understand purpose and platform | ✅ | `FORMAT_TEMPLATE` is purpose-built for the review UI and placement test audience |
-| 2 | Maintain meaning and logical flow | ✅ | `deck_compiler.py` faithfully represents all slide content in the prompt |
-| 3 | Consistent Markdown syntax | ✅ | `#` / `##` / `###`, numbered lists, tables, `**bold**`, `*italic*`, `> blockquote` all explicitly defined in the template |
-| 4 | Clear hierarchy with spacing | ✅ | `#` title → `##` sections → `###` subtopics → `---` dividers throughout |
-| 5 | Clean, consistent formatting | ✅ | Every subtopic follows identical structure: definition → Example 1/2/3 → Quick Tip |
+| 1 | Understand purpose and platform | ✅ | Format spec is purpose-built for the review UI; topic-driven pattern chosen per topic type |
+| 2 | Maintain meaning and logical flow | ✅ | `deck_compiler.py` uses all slide titles to maintain the original deck's logical progression |
+| 3 | Consistent Markdown syntax | ✅ | `#` / `##` / `###`, tables, `**bold**`, `*italic*`, `> blockquote` all explicitly required; `<b>` HTML explicitly forbidden |
+| 4 | Clear hierarchy with spacing | ✅ | H1 → H2 → H3 hierarchy with `---` dividers between major sections |
+| 5 | Clean, consistent formatting | ✅ | Both Pattern A and Pattern B have consistent section sequences |
 | 6 | Verify lists and tables render correctly | ⚠️ | `remark-gfm` handles GFM tables and lists; human reviewer must confirm rendering before approving |
-| 7 | Preserve examples, tables, notes | ✅ | MCQ structure, How to Score table, and `> **Quick Tip:**` blockquotes are all preserved |
-| 8 | Hyperlinks for references | ❌ | "Where to Practise" resources are plain text — not formatted as clickable Markdown links |
-| 9 | Readable across platforms | ✅ | Pure Markdown — zero HTML — the most portable format possible |
-| 10 | Check for structural errors | ✅ | `TIER1_ASSERTIONS` validates all 9 required section markers are present before a generation is stored |
-| 11 | Grammar accuracy and terminology | ⚠️ | Reviewer can reject with `factual_error` or `unclear_explanation`; no automated grammar checker runs pre-review |
-| 12 | Naming conventions and file organisation | ✅ | `skill_type` naming is consistent; all sections always use the same heading names |
-| 13 | Test in Markdown preview | ✅ | `GenerationCard` is a live rendered preview — reviewer sees the final output before approving |
+| 7 | Preserve examples, tables, notes | ✅ | Tables, bold terms, and image placeholders all explicitly preserved |
+| 8 | Hyperlinks for references | ⚠️ | Source titles shown in the prompt but not formatted as clickable links in the output |
+| 9 | Readable across platforms | ✅ | Pure Markdown — zero HTML (except user-inserted `<img>` S3 tags) — most portable format |
+| 10 | Check for structural errors | ✅ | `TIER1_ASSERTIONS` validates H2 sections, table syntax, bold terms, and exception section presence |
+| 11 | Grammar accuracy and terminology | ⚠️ | Reviewer can reject with `factual_error` or `unclear_explanation`; no automated grammar checker pre-review |
+| 12 | Naming conventions | ✅ | `skill_type` naming is consistent; section headings follow the same pattern per topic type |
+| 13 | Test in Markdown preview | ✅ | `GenerationCard` is a live rendered preview — reviewer sees the final output; external preview tool available via "Open Preview" button |
 
 ### Known Gaps — Planned Improvements
 
 | Priority | Gap | Planned Fix |
 |---|---|---|
-| High | No Common Errors section (Guideline 13) | Add `## Common Errors` section to `FORMAT_TEMPLATE` listing 3–5 typical L1-interference mistakes with corrections |
-| High | No Key Points block per subtopic (Guideline 9) | Add a `> **Key Points:**` summary after each subtopic definition, before Example 1 |
-| Medium | "Where to Practise" links are plain text (Markdown Guideline 8) | Change prompt rule so resources use `[Name](URL)` Markdown link format |
-| Medium | No Quick Recap at end of document (Guideline 8) | Add a `## Quick Recap` section with one bullet takeaway per subtopic |
+| High | No mandatory Common Errors section (Guideline 13) | Enforce `## Common Errors` in the seed prompt with 3–5 L1-interference examples and corrections |
+| Medium | No Quick Recap section (Guideline 8) | Add `## Quick Recap` with one-line takeaway per section at the end of each document |
+| Medium | Source titles not clickable links in output | Update prompt rule so reference attributions use `[Title](URL)` Markdown format |
+| Low | Audience profile not configurable per deck | Expose `ConfigInjection.audience` field in the upload form |
 
 ---
 
 ## Key Design Decisions
 
-### One LLM call per deck (not per slide)
-Earlier versions made one call per slide, then a final compilation call — N+1 total. This was slow (minutes) and expensive. The current architecture makes **exactly one call** per deck upload, reducing both cost and latency by an order of magnitude.
+### One LLM call per deck
+Earlier versions made one call per slide — O(n) cost and latency. The current architecture makes **exactly one call** per deck upload. Slides provide topic structure; the LLM writes the reading material as a coherent whole rather than stitching per-slide fragments.
 
-### Pure Markdown output (no HTML)
-The `FORMAT_TEMPLATE` in `format_schema.py` uses only standard Markdown — no `<details>`, `<summary>`, or custom JSX components. LLMs follow plain Markdown much more reliably than HTML-hybrid formats.
+### Slide titles only — no body text
+The PPT body text is intentionally excluded from the prompt. The LLM should write fresh, grounded content — not paraphrase bullet points from slides. All factual content must come from curated source passages. This forces the human content developer to supply the factual grounding.
+
+### Topic-driven format over fixed template
+The original design used a rigid template (Overview → Subtopics → How to Prepare etc.) that did not suit grammar or communication topics. The current approach instructs the LLM to choose between Pattern A (grammar rule) and Pattern B (communication/pragmatics) based on the topic, producing output that matches how grammar textbooks actually look.
+
+### Source grounding + alignment scoring
+Adding reference passages before generating is optional but strongly recommended. The alignment validator (Haiku) runs on upload — not at generation time — keeping generation fast while giving the content developer immediate feedback on whether their passages are relevant.
+
+### Book retrieval as a fallback, not a default
+Auto-retrieval from ingested books (`USE_BOOK_RETRIEVAL=true`) is disabled by default. It activates only when no manual passages exist. This prevents book text from silently overriding carefully chosen passages. Manual always wins.
 
 ### OpenRouter instead of direct Anthropic
-The LLM wrapper in `llm.py` uses the OpenAI SDK pointed at `https://openrouter.ai/api/v1`. This means:
-- Any OpenRouter-supported model can be swapped in via the `GENERATION_MODEL` env var
-- No code changes needed to switch providers
+The LLM wrapper uses the OpenAI SDK pointed at `https://openrouter.ai/api/v1`. Any OpenRouter-supported model can be swapped in via `GENERATION_MODEL` and `ALIGNMENT_MODEL` env vars — no code changes needed.
 
 ### Per-deck shadow determinism
 Shadow traffic split uses `hashlib.md5(deck_id)` — not per-request randomness. This ensures all slides within one deck always go to the same prompt version, making A/B comparisons meaningful.
 
-### DSPy GEPA only when ≥10 examples
-Running the optimizer with fewer examples produces noisy, overfitted prompts. The 10-example floor ensures the optimizer has enough signal to improve rather than just memorise.
-
 ### Human reviewer as the quality gate
-Every generated document sits in `pending` status until a human approves it. The G-Eval score is advisory only — it does not auto-approve. This ensures content guidelines (especially factual accuracy and common-error coverage) are verified by a person before any material reaches learners.
+Every generated document sits in `pending` status until a human approves it. G-Eval score, alignment score, and Tier-1 assertions are all advisory — none auto-approve. Factual accuracy, common-error coverage, and language quality are verified by a person before any material reaches learners.
 
 ---
 

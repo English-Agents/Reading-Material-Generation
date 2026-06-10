@@ -88,6 +88,7 @@ export interface SourceContentItem {
   author: string | null;
   alignment_score: number | null;
   alignment_verdict: "pass" | "warn" | "fail" | null;
+  alignment_reason: string | null;
   char_count: number;
   created_at: string;
 }

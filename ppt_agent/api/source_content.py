@@ -18,8 +18,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ppt_agent.api.deps import get_db
+from ppt_agent.config.settings import settings as _settings
 from ppt_agent.db.models import SourceContent
-from ppt_agent.skills.deck_compiler import MAX_SOURCE_CHARS_PER_DECK
+
+MAX_SOURCE_CHARS_PER_DECK = _settings.max_source_chars_per_deck
 
 router = APIRouter()
 DB = Annotated[AsyncSession, Depends(get_db)]
@@ -46,6 +48,7 @@ class SourceContentOut(BaseModel):
     author: Optional[str]
     alignment_score: Optional[float]
     alignment_verdict: Optional[str]
+    alignment_reason: Optional[str]
     char_count: int
     created_at: str
 
@@ -94,6 +97,7 @@ def _to_out(p: SourceContent) -> SourceContentOut:
         author=p.author,
         alignment_score=float(p.alignment_score) if p.alignment_score is not None else None,
         alignment_verdict=p.alignment_verdict,
+        alignment_reason=p.alignment_reason,
         char_count=len(p.passage_text),
         created_at=p.created_at.isoformat(),
     )
@@ -103,7 +107,10 @@ def _to_out(p: SourceContent) -> SourceContentOut:
 
 @router.post("/{deck_id}", response_model=SourceContentOut, status_code=201)
 async def add_passage(deck_id: str, body: SourceContentIn, db: DB):
-    """Add a reference passage to a deck. Max 2,000 chars per passage."""
+    """
+    Add a reference passage to a deck. Max 2,000 chars per passage.
+    Alignment is scored immediately via claude-haiku; result written to the row.
+    """
     # Check budget before adding
     existing = (
         await db.execute(select(SourceContent).where(SourceContent.deck_id == uuid.UUID(deck_id)))
@@ -131,7 +138,31 @@ async def add_passage(deck_id: str, body: SourceContentIn, db: DB):
         uploaded_by=body.uploaded_by,
     )
     db.add(row)
-    await db.flush()
+    await db.flush()   # get the row id before alignment call
+
+    # Run alignment immediately so the caller sees scores in the response
+    try:
+        from ppt_agent.skills.alignment_validator import validate_passages as _validate
+        result = await _validate(
+            topic_id=deck_id,
+            topic_text=body.topic_label,
+            passages=[{
+                "id": str(row.id),
+                "passage_text": row.passage_text,
+                "source_title": row.source_title,
+                "page_ref": row.page_ref,
+            }],
+        )
+        if result.passage_results:
+            pr = result.passage_results[0]
+            row.alignment_score = pr.alignment_score
+            row.alignment_verdict = pr.verdict
+            row.alignment_reason = pr.reason
+    except Exception as exc:
+        # Alignment failure must not block the passage from being saved
+        import logging
+        logging.getLogger(__name__).warning("Alignment check failed on POST: %s", exc)
+
     return _to_out(row)
 
 
@@ -204,6 +235,7 @@ async def validate_passages(deck_id: str, body: ValidationRequest, db: DB):
         if row:
             row.alignment_score = pr.alignment_score
             row.alignment_verdict = pr.verdict
+            row.alignment_reason = pr.reason
 
     # Determine if generation is blocked
     has_fail = any(pr.verdict == "fail" for pr in result.passage_results)

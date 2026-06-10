@@ -105,8 +105,13 @@ async def _check_score_drops(db: AsyncSession) -> None:
     from ppt_agent.memory.generation_store import get_recent_eval_scores
     from ppt_agent.memory.prompt_store import get_active
 
-    skill_types = ["concept_explainer", "code_walkthrough", "diagram_describer",
-                   "figure_caption", "quiz_generator"]
+    skill_types = (
+        await db.execute(
+            select(Generation.skill_type)
+            .where(Generation.is_shadow == False)
+            .distinct()
+        )
+    ).scalars().all()
 
     for skill in skill_types:
         scores = await get_recent_eval_scores(skill, db, window=_SCORE_DROP_WINDOW * 2)
@@ -215,8 +220,25 @@ async def _maybe_auto_rollback(db: AsyncSession) -> None:
 
 @router.get("/dashboard", response_model=DashboardResponse)
 async def get_dashboard(db: DB):
-    skill_types = ["concept_explainer", "code_walkthrough", "diagram_describer",
-                   "figure_caption", "quiz_generator"]
+    # Query distinct skill_types that actually exist in the DB (non-shadow only)
+    found = (
+        await db.execute(
+            select(Generation.skill_type)
+            .where(Generation.is_shadow == False)
+            .distinct()
+        )
+    ).scalars().all()
+
+    # Always show deck_reading first; sort the rest alphabetically
+    skill_types = sorted(
+        found,
+        key=lambda s: (0 if s == "deck_reading" else 1, s),
+    )
+
+    # Fall back to defaults if DB is empty (fresh install)
+    if not skill_types:
+        skill_types = ["deck_reading", "concept_explainer", "code_walkthrough",
+                       "diagram_describer", "figure_caption", "quiz_generator"]
 
     skills_stats: list[SkillStats] = []
     for skill in skill_types:

@@ -22,7 +22,7 @@ from ppt_agent.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-HAIKU_MODEL = "anthropic/claude-haiku-4-5"
+HAIKU_MODEL = "anthropic/claude-haiku-4-5-20251001"   # overridden at runtime by settings.alignment_model
 
 ALIGNMENT_JUDGE_PROMPT = """
 You are evaluating whether a book passage is relevant to a topic.
@@ -71,12 +71,12 @@ async def validate_passages(
     topic_id: str,
     topic_text: str,
     passages: list[dict],           # each: {id, passage_text, source_title, page_ref}
-    threshold: float = 0.7,
+    threshold: float | None = None,
 ) -> AlignmentValidatorOutput:
-    """
-    Score each passage against the topic using claude-haiku-4-5.
-    One LLM call per passage (~200 tokens in, ~10 tokens out).
-    """
+    """Score each passage against the topic using claude-haiku-4-5. One call per passage."""
+    if threshold is None:
+        threshold = settings.alignment_threshold
+    model = settings.alignment_model or HAIKU_MODEL
     client = AsyncOpenAI(
         api_key=settings.anthropic_api_key,
         base_url=settings.llm_base_url,
@@ -93,7 +93,7 @@ async def validate_passages(
         )
         try:
             resp = await client.chat.completions.create(
-                model=HAIKU_MODEL,
+                model=model,
                 max_tokens=128,
                 messages=[{"role": "user", "content": prompt}],
             )
