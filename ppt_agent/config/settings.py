@@ -70,18 +70,23 @@ class Settings(BaseSettings):
 
     @property
     def async_database_url(self) -> str:
-        """Ensure the URL uses the asyncpg driver (Render provides plain postgresql://)."""
+        """Ensure the URL uses the asyncpg driver (Render provides plain postgresql://).
+        Neon provides ?sslmode=require — asyncpg uses ?ssl=require instead."""
         url = self.database_url
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql+asyncpg://", 1)
         elif url.startswith("postgresql://") and "+asyncpg" not in url:
             url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        # asyncpg does not accept sslmode; convert to its ssl parameter
+        url = url.replace("sslmode=require", "ssl=require")
         return url
 
     @property
     def sync_database_url(self) -> str:
         """Synchronous URL for Alembic (psycopg2, not asyncpg)."""
-        return self.async_database_url.replace("postgresql+asyncpg://", "postgresql://")
+        url = self.async_database_url.replace("postgresql+asyncpg://", "postgresql://")
+        # psycopg2 uses sslmode=require, not ssl=require
+        return url.replace("ssl=require", "sslmode=require")
 
     @property
     def pattern_promotion_threshold(self) -> int:
