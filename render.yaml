@@ -1,8 +1,4 @@
 services:
-  - type: redis
-    name: rmg-redis
-    plan: free
-
   - type: web
     name: rmg-api
     runtime: python
@@ -14,39 +10,25 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
-
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: rmg-redis
-          property: connectionString
-
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
-
       - key: LLM_BASE_URL
         value: https://openrouter.ai/api/v1
-
       - key: GENERATION_MODEL
         value: anthropic/claude-sonnet-4-6
-
       - key: OPENAI_API_KEY
         sync: false
-
       - key: GOOGLE_SERVICE_ACCOUNT_JSON
         sync: false
-
       - key: MAX_RETRIES
         value: "3"
-
       - key: PATTERN_CONFIDENCE_THRESHOLD
         value: "0.75"
-
       - key: SHADOW_PROMOTION_MARGIN
         value: "0.05"
-
       - key: MIN_EXAMPLES_CONSTANT
         value: "20"
-
       - key: SHADOW_CONFIG_JSON
         value: '{"concept_explainer":{"traffic_pct":0.2,"min_slides":50},"code_walkthrough":{"traffic_pct":0.2,"min_slides":100},"diagram_describer":{"traffic_pct":0.3,"min_slides":40},"figure_caption":{"traffic_pct":0.3,"min_slides":40}}'
