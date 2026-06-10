@@ -2,23 +2,26 @@ databases:
   - name: rmg-postgres
     databaseName: rmgdb
     user: rmg
-    plan: starter
+    plan: free
     postgresMajorVersion: 16
 
 services:
   # ── Redis ─────────────────────────────────────────────────────────────────────
   - type: redis
     name: rmg-redis
-    plan: starter
+    plan: free
     maxmemoryPolicy: allkeys-lru
 
-  # ── FastAPI Backend ───────────────────────────────────────────────────────────
+  # ── Combined Backend + Frontend ───────────────────────────────────────────────
+  # Build step: compile React first, then install Python deps.
+  # FastAPI serves frontend/dist as static files (see ppt_agent/api/main.py).
+  # All routes not matched by the API fall through to index.html (SPA routing).
   - type: web
     name: rmg-api
     runtime: python
-    plan: starter
+    plan: free
     pythonVersion: "3.11.0"
-    buildCommand: pip install -e .
+    buildCommand: cd frontend && npm install && npm run build && cd .. && pip install -e .
     startCommand: bash start.sh
     healthCheckPath: /healthz
     envVars:
@@ -53,11 +56,6 @@ services:
       - key: GOOGLE_SERVICE_ACCOUNT_JSON
         sync: false        # set manually in Render dashboard
 
-      # CORS — set to your frontend URL after the static site is deployed
-      # Example: https://rmg-frontend.onrender.com
-      - key: CORS_ORIGINS
-        sync: false        # set manually in Render dashboard
-
       # Tuning
       - key: MAX_RETRIES
         value: "3"
@@ -69,20 +67,3 @@ services:
         value: "20"
       - key: SHADOW_CONFIG_JSON
         value: '{"concept_explainer":{"traffic_pct":0.2,"min_slides":50},"code_walkthrough":{"traffic_pct":0.2,"min_slides":100},"diagram_describer":{"traffic_pct":0.3,"min_slides":40},"figure_caption":{"traffic_pct":0.3,"min_slides":40}}'
-
-  # ── React Frontend (Static Site) ──────────────────────────────────────────────
-  - type: web
-    name: rmg-frontend
-    runtime: static
-    buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: frontend/dist
-    pullRequestPreviewsEnabled: false
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      # Set this to your API URL after rmg-api is deployed
-      # Example: https://rmg-api.onrender.com
-      - key: VITE_API_URL
-        sync: false        # set manually in Render dashboard

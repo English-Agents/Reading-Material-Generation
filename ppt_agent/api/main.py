@@ -10,10 +10,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from ppt_agent.config.settings import settings
 
@@ -83,6 +86,18 @@ def create_app() -> FastAPI:
     @app.get("/healthz", tags=["health"])
     async def healthz():
         return {"status": "ok"}
+
+    # Serve the React build when it exists (production / Render deployment)
+    _dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    if _dist.exists():
+        app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="assets")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def serve_frontend(full_path: str):
+            candidate = _dist / full_path
+            if candidate.exists() and candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(_dist / "index.html")
 
     return app
 
