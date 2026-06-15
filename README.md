@@ -1,6 +1,6 @@
 # RMG — Reading Material Generator
 
-An **agentic, self-improving pipeline** that converts PowerPoint presentations (or Google Slides) into structured reading material documents. Upload a deck, get a fully formatted, reviewable reading material in one LLM call. Reviewers approve or reject it; every rejection triggers automatic prompt optimisation so the system improves over time.
+An **agentic, self-improving pipeline** that converts PowerPoint presentations (or Google Slides) into structured, instructionally-complete reading material documents. Upload a deck, get a fully formatted reading material in one LLM call. Reviewers approve or reject it; every rejection triggers automatic prompt optimisation so the system improves over time.
 
 ---
 
@@ -13,25 +13,26 @@ An **agentic, self-improving pipeline** that converts PowerPoint presentations (
 5. [How It Works — End to End](#how-it-works--end-to-end)
 6. [Source Content Grounding](#source-content-grounding)
 7. [Alignment Validator](#alignment-validator)
-8. [Book Ingestion Pipeline](#book-ingestion-pipeline)
+8. [Book Ingestion Pipeline (RAG)](#book-ingestion-pipeline-rag)
 9. [Topic-Driven Format](#topic-driven-format)
-10. [Database Schema](#database-schema)
-11. [API Reference](#api-reference)
-12. [Environment Variables](#environment-variables)
-13. [Local Setup](#local-setup)
-14. [Running the Server](#running-the-server)
-15. [Frontend](#frontend)
-16. [Self-Improving Prompt System (DSPy + GEPA)](#self-improving-prompt-system-dspy--gepa)
-17. [Shadow A/B Testing](#shadow-ab-testing)
-18. [Memory System](#memory-system)
-19. [Circuit Breaker & Repair Queue](#circuit-breaker--repair-queue)
-20. [Ops Monitoring & Auto-Rollback](#ops-monitoring--auto-rollback)
-21. [Eval Pipeline (PromptFoo)](#eval-pipeline-promptfoo)
-22. [Running Tests](#running-tests)
-23. [Content Quality Guidelines](#content-quality-guidelines)
-24. [Markdown Conversion Guidelines](#markdown-conversion-guidelines)
-25. [Guidelines Alignment — Application Cross-Check](#guidelines-alignment--application-cross-check)
-26. [Key Design Decisions](#key-design-decisions)
+10. [Instructional Design Features](#instructional-design-features)
+11. [Database Schema](#database-schema)
+12. [API Reference](#api-reference)
+13. [Environment Variables](#environment-variables)
+14. [Local Setup](#local-setup)
+15. [Running the Server](#running-the-server)
+16. [Frontend](#frontend)
+17. [Deployment — Render + Neon + Upstash (Free)](#deployment--render--neon--upstash-free)
+18. [Self-Improving Prompt System (DSPy + GEPA)](#self-improving-prompt-system-dspy--gepa)
+19. [Shadow A/B Testing](#shadow-ab-testing)
+20. [Memory System](#memory-system)
+21. [Circuit Breaker & Repair Queue](#circuit-breaker--repair-queue)
+22. [Ops Monitoring & Auto-Rollback](#ops-monitoring--auto-rollback)
+23. [Eval Pipeline (PromptFoo)](#eval-pipeline-promptfoo)
+24. [Running Tests](#running-tests)
+25. [Content Quality Guidelines](#content-quality-guidelines)
+26. [Guidelines Alignment — Application Cross-Check](#guidelines-alignment--application-cross-check)
+27. [Key Design Decisions](#key-design-decisions)
 
 ---
 
@@ -39,23 +40,23 @@ An **agentic, self-improving pipeline** that converts PowerPoint presentations (
 
 | Input | Output |
 |---|---|
-| `.pptx` file upload | One complete reading material document in Markdown |
-| Google Slides URL | One complete reading material document in Markdown |
-| Direct `.pptx` URL | One complete reading material document in Markdown |
+| `.pptx` file upload | One complete instructional reading material document in Markdown |
+| Google Slides URL | One complete instructional reading material document in Markdown |
+| Direct `.pptx` URL | One complete instructional reading material document in Markdown |
 
-The generated reading material is **topic-driven**, not a fixed template. The LLM chooses a format appropriate to the topic type:
+The generated reading material is **instructionally complete** — not just a content expansion of the slides. Every document includes:
 
-- **Grammar rule topics** (active/passive voice, tenses, articles) — definition → rule → transformation table → exceptions
-- **Communication topics** (fillers, intonation, sentence stress) — definition → usage examples table → types → placement → register (General / Academic / Professional) → exceptions
+- **Learning Objectives** — action-verb bullets (identify, apply, transform…)
+- **Before You Begin** — prerequisite knowledge the learner needs
+- **Core teaching sections** — rules, tables, examples (topic-driven)
+- **Dialogue Simulation** — Person A / Person B scenarios (communication topics)
+- **Common Mistakes** — error table + placement exam traps
+- **Practice exercises** — 3 CEFR-labelled exercises with inline answers and remediation hints
+- **Exception Cases** — rule-breakers and edge cases
+- **Quick Recap** — 5-bullet summary of the whole document
+- **Persona callout boxes** — `💡 Beginner Tip`, `📌 Placement Candidate`, `⚡ Advanced Extension`
 
-All outputs use:
-- H1 title, H2/H3 sections, markdown tables for every comparison
-- `**bold**` for key terms (never `<b>` HTML)
-- Plain example sentences — no MCQ questions
-- A mandatory exception/restriction section at the end
-- Image placeholders as visible blockquotes: `> 📷 **Image:** *[description]*` (replace with real `<img>` S3 URLs before publishing)
-
-After generation, a human reviewer approves or rejects the output. Rejections feed into an automatic prompt optimiser that improves future generations.
+Minimum output: **1,800 words** per document.
 
 ---
 
@@ -67,7 +68,7 @@ After generation, a human reviewer approves or rejects the output. Rejections fe
 │   .pptx file  ──┐                                                   │
 │   Google Slides ─┼──► slide_parser.py ──► ParsedSlide[]            │
 │   Direct URL  ──┘                              │                    │
-└────────────────────────────────────────────────┼─────────────────── ┘
+└────────────────────────────────────────────────┼────────────────────┘
                                                   │
                          ┌────────────────────────▼─────────────────┐
                          │           deck_compiler.py                │
@@ -75,23 +76,23 @@ After generation, a human reviewer approves or rejects the output. Rejections fe
                          │                                           │
                          │  Slide TITLES only (no body text)         │
                          │         +                                 │
-                         │  Source passages  ─────────────────────── ┤
+                         │  Source passages  ────────────────────────┤
                          │  (curated manually via UI or auto-        │
                          │   retrieved from books/ via pgvector)     │
                          └────────────────────────┬─────────────────┘
                                                   │
                          ┌────────────────────────▼─────────────────┐
-                         │    OpenRouter → anthropic/claude-sonnet-4-6│
+                         │  OpenRouter → anthropic/claude-sonnet-4-6 │
                          │           max_tokens = 8,192              │
                          └────────────────────────┬─────────────────┘
                                                   │
                     ┌─────────────────────────────▼──────────────────────┐
-                    │              PostgreSQL + pgvector                  │
+                    │              PostgreSQL (Neon) + pgvector           │
                     │  generations ── source_content ── book_chunks      │
                     └─────────────────────────────┬──────────────────────┘
                                                   │
                     ┌─────────────────────────────▼──────────────────────┐
-                    │              React Review UI                        │
+                    │              React Review UI (served by FastAPI)    │
                     │  Approve ────────────► embed output                │
                     │  Reject  ──┬──────────► record feedback            │
                     │            └──────────► GEPA optimizer             │
@@ -115,16 +116,16 @@ After generation, a human reviewer approves or rejects the output. Rejections fe
 | **LLM — generation** | OpenRouter → `anthropic/claude-sonnet-4-6` via OpenAI-compatible SDK |
 | **LLM — alignment scoring** | OpenRouter → `anthropic/claude-haiku-4-5-20251001` |
 | **Embeddings** | OpenAI `text-embedding-3-small` (1536 dimensions) |
-| **Database** | PostgreSQL 16 + pgvector extension (IVFFlat cosine index) |
+| **Database** | PostgreSQL 16 + pgvector extension (IVFFlat cosine index) — hosted on Neon |
 | **ORM** | SQLAlchemy 2.0 async (asyncpg driver) |
-| **Cache** | Redis 7 — vision cache (7-day TTL), app-level Redis pool |
+| **Cache** | Redis — vision cache (7-day TTL) — hosted on Upstash |
 | **Migrations** | Alembic |
 | **Prompt Optimisation** | DSPy 3.x — `dspy.ChainOfThought` for G-Eval, `dspy.teleprompt.GEPA` |
 | **Eval Pipeline** | PromptFoo (Node.js) + Python subprocess provider |
-| **Frontend** | React 18 + Vite + TypeScript + Tailwind CSS + TanStack Query |
+| **Frontend** | React 19 + Vite + TypeScript + Tailwind CSS v4 + TanStack Query |
 | **Markdown Rendering** | `react-markdown` + `remark-gfm` + `rehype-raw` |
 | **Book parsing** | `pdfplumber` (PDF), `ebooklib` + `beautifulsoup4` (EPUB), plain text |
-| **Containerisation** | Docker Compose (postgres + redis) |
+| **Deployment** | Render (web service) + Neon (PostgreSQL) + Upstash (Redis) |
 | **Testing** | pytest + pytest-asyncio + fakeredis |
 
 ---
@@ -138,16 +139,19 @@ d:\RMG\
 ├── slide_classifier.py          # Classifies slide type (CONCEPT / CODE / DIAGRAM etc.)
 ├── seed_db.py                   # Seeds initial prompt versions into the database
 ├── reseed_prompts.py            # Updates existing prompt versions after format changes
-├── ingest_books.py              # Ingests books from books/ → book_chunks table
+├── ingest_books.py              # Ingests books from books/ → book_chunks table (RAG)
+├── start.sh                     # Render startup script — migrate + seed + uvicorn
+├── render.yaml                  # Render deployment blueprint
+├── .python-version              # Python 3.11.0 — used by Render build
 │
-├── books/                       # Drop your .pdf / .epub / .txt books here
+├── books/                       # Drop .pdf / .epub / .txt reference books here
 │   └── .gitkeep
 │
 ├── ppt_agent/
 │   ├── llm.py                   # Central LLM wrapper — OpenRouter via OpenAI SDK
 │   │
 │   ├── api/
-│   │   ├── main.py              # FastAPI app factory + lifespan (Redis pool, ops job)
+│   │   ├── main.py              # FastAPI app factory + static file serving (serves React build)
 │   │   ├── deps.py              # Dependency injection — get_db(), get_redis()
 │   │   ├── generate.py          # POST /generate/file  POST /generate/url
 │   │   ├── review.py            # POST /review/{id}/approve|reject|feedback
@@ -156,8 +160,8 @@ d:\RMG\
 │   │   └── export.py            # POST /export/{deck_id}
 │   │
 │   ├── config/
-│   │   ├── settings.py          # Pydantic-settings — all env vars in one place
-│   │   └── format_schema.py     # Topic-driven format spec (Pattern A / Pattern B)
+│   │   ├── settings.py          # Pydantic-settings — all env vars, URL conversion for Neon SSL
+│   │   └── format_schema.py     # Topic-driven format (Pattern A / B) + TIER1_ASSERTIONS
 │   │
 │   ├── db/
 │   │   ├── models.py            # SQLAlchemy ORM — 8 tables
@@ -166,15 +170,15 @@ d:\RMG\
 │   ├── skills/
 │   │   ├── deck_compiler.py     # ONE LLM call per deck — builds reading material
 │   │   ├── alignment_validator.py  # Per-passage Haiku scoring (pass ≥0.7, warn 0.5–0.69)
-│   │   ├── book_retriever.py    # pgvector similarity search over book_chunks
+│   │   ├── book_retriever.py    # pgvector similarity search over book_chunks (traditional RAG)
+│   │   ├── seed_prompts.py      # System prompt text for every skill — full instructional spec
 │   │   ├── router.py            # Routes slides to the right skill (legacy per-slide path)
-│   │   ├── concept_explainer.py # Skill: explain a concept slide
-│   │   ├── code_walkthrough.py  # Skill: walk through a code slide
-│   │   ├── diagram_describer.py # Skill: describe a technical diagram
-│   │   ├── figure_caption.py    # Skill: caption a non-technical image
-│   │   ├── quiz_generator.py    # Skill: generate quiz questions
-│   │   ├── seed_prompts.py      # System prompt text for every skill
-│   │   ├── cost_tracker.py      # Token cost calculation (USD per call)
+│   │   ├── concept_explainer.py
+│   │   ├── code_walkthrough.py
+│   │   ├── diagram_describer.py
+│   │   ├── figure_caption.py
+│   │   ├── quiz_generator.py
+│   │   ├── cost_tracker.py
 │   │   ├── shadow.py            # Shadow A/B testing — per-deck traffic split
 │   │   └── circuit_breaker.py   # Retry decorator — failed skill → repair queue
 │   │
@@ -197,46 +201,41 @@ d:\RMG\
 │   │   └── prompt_optimizer.py  # GEPA optimizer — runs when ≥10 labelled examples exist
 │   │
 │   └── evals/
-│       ├── promptfoo.yaml       # PromptFoo eval config
-│       ├── caption_judge.py     # PromptFoo Python subprocess provider
-│       ├── run_regression.py    # Run PromptFoo + write results to DB
-│       ├── test_case_generator.py  # Auto-generate regression tests on rejection
+│       ├── promptfoo.yaml
+│       ├── caption_judge.py
+│       ├── run_regression.py
+│       ├── test_case_generator.py
 │       └── regression_suite/
-│           └── auto_generated.yaml  # Growing test case library
+│           └── auto_generated.yaml
 │
 ├── migrations/
-│   ├── env.py                   # Alembic env — strips +asyncpg for sync migrations
-│   ├── script.py.mako
 │   └── versions/
-│       ├── 0001_initial.py      # All core tables + pgvector IVFFlat index
-│       ├── 0002_add_deck_reading.py   # Adds deck_reading to skill_type CHECK
-│       ├── 0003_source_content.py     # source_content table + alignment columns
-│       ├── 0004_schema_fixes.py       # alignment_reason column + 13 feedback signals
-│       └── 0005_book_chunks.py        # book_chunks table with Vector(1536)
+│       ├── 0001_initial.py
+│       ├── 0002_add_deck_reading.py
+│       ├── 0003_source_content.py
+│       ├── 0004_schema_fixes.py
+│       └── 0005_book_chunks.py
 │
 ├── frontend/
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── UploadPage.tsx          # Drag-and-drop PPTX upload + Google Slides URL
-│   │   │   ├── ReviewPage.tsx          # Generated material review + source passages link
-│   │   │   ├── SourceContentPage.tsx   # Add/view/delete source passages, budget bar
-│   │   │   └── DashboardPage.tsx       # Per-skill stats, alerts, repair queue
-│   │   ├── components/
-│   │   │   ├── GenerationCard.tsx      # Renders markdown, Copy MD, Open Preview buttons
-│   │   │   ├── FeedbackModal.tsx       # 13-signal rejection feedback picker
-│   │   │   ├── AlignmentBadge.tsx      # pass/warn/fail badge with score tooltip
-│   │   │   ├── PassageForm.tsx         # Collapsible form to add a source passage
-│   │   │   └── Layout.tsx
-│   │   └── api/client.ts              # Typed axios wrapper for all API endpoints
-│   └── ...
+│   └── src/
+│       ├── pages/
+│       │   ├── UploadPage.tsx
+│       │   ├── ReviewPage.tsx
+│       │   ├── SourceContentPage.tsx
+│       │   └── DashboardPage.tsx
+│       ├── components/
+│       │   ├── GenerationCard.tsx
+│       │   ├── FeedbackModal.tsx
+│       │   ├── AlignmentBadge.tsx
+│       │   ├── PassageForm.tsx
+│       │   └── Layout.tsx
+│       └── api/client.ts
 │
-├── render.yaml                  # Render.com deployment — all services defined
-├── start.sh                     # Render startup script — migrate + seed + uvicorn
-├── docker-compose.yml           # PostgreSQL 16 (pgvector) + Redis 7
-├── pyproject.toml               # Python dependencies + pytest config
+├── pyproject.toml
 ├── alembic.ini
-├── .env.example                 # Template — copy to .env and fill in secrets
-└── .gitignore                   # .env excluded — never commit secrets
+├── docker-compose.yml
+├── .env.example
+└── .gitignore
 ```
 
 ---
@@ -251,114 +250,113 @@ POST /generate/url    (Google Slides URL or direct .pptx URL)
 
 ### 2. Parse
 `slide_parser.py` extracts from every slide:
-- `title` — slide heading
-- `body_text` — all text frames concatenated (NOT sent to the LLM — titles only)
-- `speaker_notes` — presenter notes
+- `title` — slide heading (sent to LLM)
+- `body_text` — all text frames (NOT sent to LLM — titles only)
+- `speaker_notes`
 - `embedded_images` — list of `{base64_data, mime_type, md5}`
 
 ### 3. Compile — ONE LLM call
 `deck_compiler.py` builds the prompt from:
-- **Slide titles only** — body text is intentionally excluded to prevent raw PPT content from leaking into the output
-- **Source passages** — curated reference material added by content developers (see [Source Content Grounding](#source-content-grounding))
-- **Book chunks** (optional) — auto-retrieved from ingested books when `USE_BOOK_RETRIEVAL=true`
+- **Slide titles only** — body text intentionally excluded
+- **Source passages** — curated reference material (manual priority)
+- **Book chunks** (optional) — auto-retrieved via pgvector when `USE_BOOK_RETRIEVAL=true` and no manual passages exist
 
-One call to `claude-sonnet-4-6` via OpenRouter with `max_tokens=8192`. Cost ≈ $0.01–0.03 per deck.
+One call to `claude-sonnet-4-6` via OpenRouter, `max_tokens=8192`. Cost ≈ $0.01–0.04 per deck.
 
 ### 4. Store
-The output is saved as a `Generation` row with:
+The output is saved as a `Generation` row:
 - `skill_type = "deck_reading"`
 - `slide_index = -1` (whole deck)
 - `status = "pending"`
-- `token_cost_usd` calculated from actual token counts
+- `token_cost_usd` from actual token counts
 
 ### 5. Review
-The React UI fetches the pending `deck_reading` generation and renders it as formatted Markdown. The reviewer can:
+The React UI fetches the pending generation and renders it as formatted Markdown. Reviewer actions:
 
 | Action | What happens |
 |---|---|
-| **Approve** | `status → approved`, embedding computed in background, G-Eval auto-score written |
-| **Reject** | `status → rejected`, feedback signals recorded, regression test generated, GEPA optimizer triggered |
-| **Copy MD** | Copies the raw Markdown to clipboard |
-| **Open Preview** | Opens the Markdown in an external preview tool |
+| **Approve** | `status → approved`, embedding computed, G-Eval auto-score written |
+| **Reject** | `status → rejected`, 13-signal feedback recorded, regression test generated, GEPA triggered |
+| **Copy MD** | Copies raw Markdown to clipboard |
+| **Open Preview** | Opens in external Markdown preview |
 
 ### 6. Self-improve
-- Every rejection adds a labelled example to the GEPA training set
-- When ≥ 10 labelled examples exist, the GEPA optimizer rewrites the `deck_reading` prompt and stores it as a `candidate` prompt version
-- The ops background job promotes shadow versions that beat the active version by ≥ 5%
+Every rejection adds a labelled example to GEPA training set. At ≥10 examples, GEPA rewrites the prompt and creates a `candidate` version for shadow A/B testing.
 
 ---
 
 ## Source Content Grounding
 
-The generation is grounded in curated reference passages — the LLM **cannot invent facts** not present in the provided passages.
-
-### How it works
-
-1. A content developer opens the **Source Passages** page for a deck (`/source/:deckId`)
-2. They add passages from grammar books, official style guides, or other trusted sources
-3. Each passage is immediately scored by the **Alignment Validator** (see below)
-4. At generation time, all passages for the deck are injected into the prompt as the sole factual basis
-5. A **budget bar** in the UI shows how much of the 12,000-character limit is used
+The generation is grounded in curated reference passages — the LLM **cannot invent facts** not present in the passages.
 
 ### Source passage budget
 
 | Limit | Value |
 |---|---|
 | Max chars per passage | 2,000 |
-| Max chars per deck (all passages combined) | 12,000 (~3,000 tokens) |
-
-Exceeding the deck budget raises a `SourceBudgetExceeded` error before the LLM call. The UI shows the budget bar turning red and the generation button is blocked.
+| Max chars per deck | 12,000 (~3,000 tokens) |
 
 ### Source content API
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/source-content/{deck_id}` | List all passages for a deck |
+| `GET` | `/source-content/{deck_id}` | List all passages + budget usage |
 | `POST` | `/source-content/{deck_id}` | Add a passage (triggers alignment scoring) |
-| `DELETE` | `/source-content/{passage_id}` | Remove a passage |
-| `POST` | `/source-content/{deck_id}/validate` | Re-run alignment scoring on all passages |
+| `DELETE` | `/source-content/{deck_id}/{id}` | Remove a passage |
+| `POST` | `/source-content/{deck_id}/validate` | Re-run alignment on all passages |
 
 ---
 
 ## Alignment Validator
 
-Every source passage is automatically scored for topical relevance before it is used in generation.
+Every source passage is automatically scored for topical relevance using `claude-haiku-4-5`.
 
-### Scoring
+| Score | Verdict | Meaning |
+|---|---|---|
+| ≥ 0.70 | `pass` ✅ | On-topic, suitable for grounding |
+| 0.50–0.69 | `warn` ⚠️ | Partially relevant — review before use |
+| < 0.50 | `fail` ❌ | Off-topic — replace |
 
-The validator calls `anthropic/claude-haiku-4-5-20251001` with the passage text and the topic label. It returns a score `0.0–1.0` and a human-readable reason.
-
-| Score | Verdict | Badge colour | Meaning |
-|---|---|---|---|
-| ≥ 0.70 | `pass` | Green | Passage is on-topic and suitable |
-| 0.50–0.69 | `warn` | Yellow | Partially relevant — review before use |
-| < 0.50 | `fail` | Red | Off-topic — consider replacing |
-
-### In the UI
-
-The **AlignmentBadge** component shows the verdict and score on each passage card. Hovering reveals the full reason from the model.
-
-### Non-blocking
-
-A failing alignment score does **not** block generation. It is advisory only — the content developer decides whether to keep or replace the passage.
+A failing score is advisory only — it does not block generation.
 
 ---
 
-## Book Ingestion Pipeline
+## Book Ingestion Pipeline (RAG)
 
-Add your own grammar books, style guides, or reference texts to the `books/` folder. The system will extract, chunk, embed, and store them for automatic retrieval during generation.
+The system uses **Traditional RAG** — embed-retrieve-generate — over a library of ingested grammar and reference books.
 
-### Supported formats
+### How it works
 
-| Format | Extractor |
+```
+PDF / EPUB / TXT
+      ↓
+Text Extraction (pdfplumber / ebooklib / plain)
+      ↓
+Sentence-boundary chunking (~1,500 chars, 150-char overlap)
+      ↓
+text-embedding-3-small → Vector(1536)
+      ↓
+Stored in book_chunks (pgvector)
+      ↓
+At generation: cosine similarity search over combined topic labels
+top_k=6, min_similarity=0.35
+      ↓
+Top chunks injected as reference passages into the LLM prompt
+```
+
+### Current RAG type and limitations
+
+| Type | Status |
 |---|---|
-| `.pdf` | `pdfplumber` — text extracted per page |
-| `.epub` | `ebooklib` + `BeautifulSoup` — text extracted per chapter |
-| `.txt` / `.md` | Direct read with section detection |
+| Single combined query | ✅ Current implementation |
+| Per-topic retrieval | ⚠️ Future improvement — run one query per slide title |
+| Re-ranking (cross-encoder) | ⚠️ Not yet implemented |
+| HyDE (Hypothetical Document Embeddings) | ⚠️ Not yet implemented |
+| Semantic chunking | ⚠️ Fixed 1,500-char chunks currently |
+
+Manual source passages always take priority over book retrieval.
 
 ### File naming convention
-
-Name your files as `Title - Author.ext` so metadata is auto-extracted:
 
 ```
 Grammar in Use - Raymond Murphy.pdf
@@ -366,75 +364,144 @@ Swan Practical English Usage - Michael Swan.epub
 Sentence Stress Notes.txt
 ```
 
-### Running the ingestion script
+Format: `Title - Author.ext` — author is auto-extracted after the ` - ` separator.
+
+### CLI
 
 ```bash
-# Process all new files in books/
-python ingest_books.py
-
-# See what is already indexed
-python ingest_books.py --list
-
-# Process a single file
-python ingest_books.py --file "Grammar in Use - Raymond Murphy.pdf"
-
-# Force re-process all files
-python ingest_books.py --reindex
+python ingest_books.py                    # process all new files
+python ingest_books.py --list             # show indexed books
+python ingest_books.py --file grammar.pdf # process one file
+python ingest_books.py --reindex          # force re-process all
 ```
 
-The script:
-1. Extracts text from each book
-2. Splits into ~1,500-char overlapping chunks at sentence boundaries
-3. Skips files already indexed (by filename)
-4. Embeds each chunk via `text-embedding-3-small`
-5. Stores chunks in the `book_chunks` table with pgvector embeddings
-
-### Enabling auto-retrieval
-
-Set `USE_BOOK_RETRIEVAL=true` in your `.env`. When a deck has **no manually curated passages**, the system will automatically retrieve the top-6 most relevant book chunks using pgvector cosine similarity and inject them as the reference passages for generation.
-
-If manual passages exist, book retrieval is skipped — manual passages always take priority.
+Set `USE_BOOK_RETRIEVAL=true` in `.env` to activate auto-retrieval.
 
 ---
 
 ## Topic-Driven Format
 
-The output format is not a rigid template. The LLM selects the pattern that best fits the topic.
+The LLM selects the pattern that best fits the topic type.
 
 ### Pattern A — Grammar Rule Topics
-Used for: active/passive voice, reported speech, conditionals, articles, tenses, etc.
+Active/passive voice, tenses, conditionals, articles, reported speech, etc.
 
 ```
-# [Topic Title]
-## Definition
-## Grammar Rule
-   | Tense | Active | Passive |  (transformation table)
-## How to Form It
-## Common Uses
-## Exceptions and Restrictions
+# [Title]
+## Learning Objectives
+## Before You Begin
+## What is [Topic]?
+## Why is it important?
+## [Core Rule / Structure]         ← transformation tables mandatory
+## [Topic] in Different Tenses / Contexts
+## Where is [Topic] used?          ← General / Academic / Professional table
+## Common Mistakes                 ← error table + placement exam traps
+## Practice                        ← 3 CEFR-labelled exercises + remediation hints
+## Exception Cases
+## Quick Recap
 ```
 
-### Pattern B — Communication/Pragmatics Topics
-Used for: fillers, intonation, sentence stress, register, hedging, discourse markers, etc.
+### Pattern B — Communication / Pragmatics Topics
+Fillers, intonation, sentence stress, register, hedging, discourse markers, etc.
 
 ```
-# [Topic Title]
-## What Is It?
-## Types / Categories     (with examples table)
-## Placement and Usage
-## General / Academic / Professional Usage
-## Exceptions and Restrictions
+# [Title]
+## Learning Objectives
+## Before You Begin
+## Quick Examples
+## Why is [Topic] important?
+## Types of [Topic]                ← classification table mandatory
+## Placement / Patterns
+## Usage in Context                ← General / Academic / Professional
+## Dialogue Simulation             ← 3 Person A / B scenarios
+## Common Mistakes                 ← error table + placement exam traps
+## Practice                        ← 3 CEFR-labelled exercises + remediation hints
+## Exception Cases and Restrictions
+## Quick Recap
 ```
 
-### Format invariants (apply to both patterns)
+### Format invariants (both patterns)
 
-- H1 title, H2/H3 sections, horizontal rules between major sections
+- H1 title → H2 sections → H3 sub-concepts
 - Markdown tables for **all** comparisons — no prose lists for structured data
 - `**bold**` for key terms — never `<b>` HTML tags
-- Plain example sentences — no MCQ or quiz items
-- Exception/restriction section mandatory at the end
-- Image placeholder format: `> 📷 **Image:** *[description of image needed here]*`
-- Minimum ~1,200 words per document
+- Plain example sentences — no MCQ (A/B/C/D) anywhere in the body
+- Image placeholders: `> 📷 **Image:** *[description]*`
+- Minimum **1,800 words** per document
+
+---
+
+## Instructional Design Features
+
+These features were added to move the system from a "content elaborator" to a genuine instructional unit.
+
+### Learning Objectives
+Every document opens with 4–5 action-verb bullets:
+```markdown
+After completing this reading, you will be able to:
+- identify active and passive voice in any sentence
+- transform sentences between active and passive voice
+- apply the correct form in formal and informal writing
+```
+
+### Before You Begin
+Prerequisites so learners know what knowledge to bring:
+```markdown
+Make sure you are comfortable with:
+- identifying the subject and object of a sentence
+- basic verb forms: base, past simple, past participle
+```
+
+### Common Mistakes with Exam Traps
+Mandatory error table (≥4 rows) with L1-interference reasons + placement test gotchas:
+```markdown
+| Incorrect | Correct | Why the error happens |
+|---|---|---|
+| *The letter was wrote...* | *The letter was written...* | Confusion between past simple and past participle |
+
+**Placement test traps:**
+- TCS often tests collective nouns — "team" takes singular verb in formal writing
+```
+
+### Practice Exercises (CEFR-labelled)
+Three non-MCQ exercises per document with difficulty labels and inline answers:
+```markdown
+**Exercise 1 — Transform the sentence:** *(CEFR: B1)*
+**Exercise 2 — Fill in the blank:** *(CEFR: B1–B2)*
+**Exercise 3 — Spot the error:** *(CEFR: B2–C1)*
+```
+
+Each exercise ends with a remediation hint:
+```markdown
+*Struggled here? Go back to **[Section Name]** and focus on [specific rule].*
+```
+
+### Dialogue Simulation (Pattern B only)
+Three Person A / B conversational scenarios — matches how PPT slides teach communication:
+```markdown
+**Scenario 1 — Job interview**
+> **Context:** Candidate is asked about a gap in their CV.
+> **Person A:** "Can you tell me about this gap in your resume?"
+> **Option 1:** "Well, um, I was, you know, exploring options..."
+> **Option 2:** "I used that time to complete an online course in data analysis."
+*(Better response: Option 2 — because fillers weaken professional credibility)*
+```
+
+### Persona Callout Boxes
+Three types, placed inline after relevant rules (not grouped together):
+```markdown
+> 💡 **Beginner Tip:** *If you can replace the verb with "was/were done", it is passive voice.*
+> 📌 **Placement Candidate:** *TCS NQT tests this by giving two options that look identical — check the agent, not the verb.*
+> ⚡ **Advanced Extension:** *In academic writing, passive voice is preferred even when the agent is known.*
+```
+
+### Quick Recap
+Final section — 5 bullets, one per key concept:
+```markdown
+## Quick Recap
+- **Active voice:** Subject performs the action — agent is clear and upfront.
+- **Passive voice:** Subject receives the action — agent is moved to the end or omitted.
+```
 
 ---
 
@@ -448,12 +515,12 @@ Used for: fillers, intonation, sentence stress, register, hedging, discourse mar
 | `skill_type` | TEXT | `deck_reading`, `concept_explainer`, etc. |
 | `slide_index` | INT | `-1` for deck-level, `0+` for per-slide |
 | `prompt_version_id` | UUID FK | Which prompt was used |
-| `output_text` | TEXT | The generated reading material (Markdown) |
-| `tokens_in / tokens_out` | INT | Actual token counts from the API response |
+| `output_text` | TEXT | Generated reading material (Markdown) |
+| `tokens_in / tokens_out` | INT | Actual token counts |
 | `token_cost_usd` | NUMERIC | Calculated cost in USD |
-| `eval_score` | NUMERIC(3,2) | 0.0–1.0 quality score (manual or G-Eval) |
+| `eval_score` | NUMERIC(3,2) | 0.0–1.0 quality score |
 | `status` | TEXT | `pending \| approved \| rejected \| needs_repair` |
-| `is_shadow` | BOOL | True for shadow A/B test generations |
+| `is_shadow` | BOOL | True for shadow A/B generations |
 | `embedding` | Vector(1536) | pgvector embedding for similarity search |
 
 ### `source_content`
@@ -461,10 +528,10 @@ Used for: fillers, intonation, sentence stress, register, hedging, discourse mar
 |---|---|---|
 | `id` | UUID PK | |
 | `deck_id` | UUID | Which deck this passage belongs to |
-| `topic_label` | TEXT | The topic or subtopic this passage covers |
+| `topic_label` | TEXT | Topic this passage covers |
+| `passage_text` | TEXT (≤2000) | Curated reference text |
 | `source_title` | TEXT | Book title or source name |
-| `page_ref` | TEXT | Page number / section reference |
-| `passage_text` | TEXT (≤2000) | The curated reference text |
+| `page_ref` | TEXT | Page number / section |
 | `author` | TEXT | Author of the source |
 | `alignment_score` | NUMERIC(4,3) | 0.0–1.0 relevance score from Haiku |
 | `alignment_verdict` | TEXT | `pass \| warn \| fail` |
@@ -474,13 +541,13 @@ Used for: fillers, intonation, sentence stress, register, hedging, discourse mar
 | Column | Type | Description |
 |---|---|---|
 | `id` | UUID PK | |
-| `book_title` | TEXT | Extracted from filename |
-| `author` | TEXT | Extracted from filename (after ` - `) |
+| `book_title` | TEXT | From filename |
+| `author` | TEXT | From filename (after ` - `) |
 | `file_name` | TEXT | Original filename — used for dedup |
 | `chapter` | TEXT | Chapter or section heading |
 | `chunk_text` | TEXT | ~1,500-char text chunk |
-| `chunk_index` | INT | Position of chunk within the book |
-| `embedding` | Vector(1536) | pgvector embedding for similarity search |
+| `chunk_index` | INT | Position within the book |
+| `embedding` | Vector(1536) | pgvector embedding |
 
 ### `prompt_versions`
 | Column | Type | Description |
@@ -488,38 +555,32 @@ Used for: fillers, intonation, sentence stress, register, hedging, discourse mar
 | `id` | UUID PK | |
 | `skill_type` | TEXT | Which skill this prompt belongs to |
 | `parent_id` | UUID FK → self | Links optimised versions to their parent |
-| `prompt_text` | TEXT | Full system prompt text |
+| `prompt_text` | TEXT | Full system prompt |
 | `status` | TEXT | `candidate \| shadow \| active \| retired` |
-| `pass_rate` | NUMERIC | Tier-1 eval pass rate (0–1) |
-| `avg_rubric_score` | NUMERIC | Average PromptFoo rubric score (1–5) |
+| `pass_rate` | NUMERIC | Tier-1 eval pass rate |
+| `avg_rubric_score` | NUMERIC | Avg PromptFoo rubric score (1–5) |
 
 ### `feedback`
-Stores structured signals from reviewers. Thirteen signal types:
+13 signal types:
 
-| `signal_type` | Meaning |
+| Signal | Meaning |
 |---|---|
-| `too_long` | Output is too long |
-| `too_short` | Output is too short |
+| `too_long` / `too_short` | Length issues |
 | `wrong_tone` | Tone doesn't match audience |
 | `missing_example` | Missing worked examples |
-| `factual_error` | Contains factual mistakes |
+| `factual_error` | Contains inaccuracies |
 | `format_violation` | Format spec not followed |
-| `unnecessary_diagram` | Diagram added where not needed |
-| `needs_diagram` | Should have a diagram |
-| `unclear_explanation` | Explanation is confusing |
-| `wrong_difficulty_level` | Level doesn't match the learner profile |
-| `missing_common_errors` | No common error / L1-interference section |
-| `missing_correction` | Error shown but correction not provided |
-| `diagram_incorrect` | Diagram content is factually wrong |
+| `unnecessary_diagram` / `needs_diagram` | Diagram presence issues |
+| `unclear_explanation` | Confusing explanation |
+| `wrong_difficulty_level` | Level doesn't match learner |
+| `missing_common_errors` | No L1-interference error section |
+| `missing_correction` | Error shown without correction |
+| `diagram_incorrect` | Diagram is factually wrong |
 
-### `repair_queue`
-Tracks failed generations. A generation moves here when its `retry_count` reaches `MAX_RETRIES`.
-
-### `pattern_memory`
-Learned patterns from reviewer feedback. Promoted to `active` when `example_count` reaches `ceil(PATTERN_CONFIDENCE_THRESHOLD × MIN_EXAMPLES_CONSTANT)`.
-
-### `alerts`
-System-level alerts for score drops, deep repair queues, and old unresolved repairs.
+### Other tables
+- **`repair_queue`** — failed generations pending retry
+- **`pattern_memory`** — learned patterns from reviewer feedback
+- **`alerts`** — score drops, queue depth, queue age
 
 ---
 
@@ -529,83 +590,53 @@ System-level alerts for score drops, deep repair queues, and old unresolved repa
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/generate/file` | Upload a `.pptx` file (multipart) |
+| `POST` | `/generate/file` | Upload `.pptx` (multipart) |
 | `POST` | `/generate/url` | Google Slides or `.pptx` URL |
-| `GET` | `/generate/generations` | List generations — filter by `deck_id`, `status`, `skill_type` |
-
-**Response — `GenerateResponse`**
-```json
-{
-  "deck_id": "uuid",
-  "slide_count": 24,
-  "deck_generation_id": "uuid"
-}
-```
+| `GET` | `/generate/generations` | List — filter by `deck_id`, `status`, `skill_type` |
 
 ### Source Content
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/source-content/{deck_id}` | List all passages for a deck |
-| `POST` | `/source-content/{deck_id}` | Add a passage (triggers alignment scoring immediately) |
-| `DELETE` | `/source-content/{passage_id}` | Remove a passage |
-| `POST` | `/source-content/{deck_id}/validate` | Re-run alignment scoring on all passages |
-
-**Add passage body**
-```json
-{
-  "topic_label": "Active Voice",
-  "passage_text": "The active voice is used when...",
-  "source_title": "Grammar in Use",
-  "page_ref": "42",
-  "author": "Raymond Murphy"
-}
-```
+| `GET` | `/source-content/{deck_id}` | List passages + budget |
+| `POST` | `/source-content/{deck_id}` | Add passage (triggers alignment scoring) |
+| `DELETE` | `/source-content/{deck_id}/{id}` | Remove passage |
+| `POST` | `/source-content/{deck_id}/validate` | Re-run alignment |
 
 ### Review
 
 | Method | Path | Body |
 |---|---|---|
-| `POST` | `/review/{id}/approve` | `{ "reviewer_id": "string", "eval_score": 0.0–1.0 }` |
-| `POST` | `/review/{id}/reject` | `{ "reviewer_id": "string", "signals": [...] }` |
-| `POST` | `/review/{id}/feedback` | `{ "reviewer_id": "string", "signals": [...] }` |
-| `GET` | `/review/repair-queue` | Lists pending repair items |
-
-**Feedback signal shape**
-```json
-{
-  "signal_type": "missing_common_errors",
-  "severity": 2,
-  "section_id": "active-voice",
-  "reviewer_note": "No L1 interference examples for Indian English learners"
-}
-```
+| `POST` | `/review/{id}/approve` | `{ reviewer_id, eval_score }` |
+| `POST` | `/review/{id}/reject` | `{ reviewer_id, signals: [...] }` |
+| `POST` | `/review/{id}/feedback` | `{ reviewer_id, signals: [...] }` |
+| `GET` | `/review/repair-queue` | Pending repairs |
 
 ### Ops
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/ops/dashboard` | Per-skill stats — counts, avg score, avg cost, active prompt |
-| `GET` | `/ops/alerts` | Unresolved alerts (`?resolved=true` for resolved) |
-| `POST` | `/ops/alerts/{id}/resolve` | Manually resolve an alert |
+| `GET` | `/ops/dashboard` | Per-skill stats |
+| `GET` | `/ops/alerts` | Unresolved alerts |
+| `POST` | `/ops/alerts/{id}/resolve` | Manually resolve alert |
 
 ### Export
 
 | Method | Path | Body |
 |---|---|---|
-| `POST` | `/export/{deck_id}` | `{ "format": "pdf\|docx\|markdown" }` |
+| `POST` | `/export/{deck_id}` | `{ format: "pdf\|docx\|markdown" }` |
 
 ### Health
 
-| Method | Path |
-|---|---|
-| `GET` | `/healthz` |
+```
+GET /healthz  →  { "status": "ok" }
+```
 
 ---
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and fill in the values:
+Copy `.env.example` to `.env`:
 
 ```env
 # LLM — OpenRouter key (sk-or-v1-...) or direct Anthropic key
@@ -614,27 +645,27 @@ LLM_BASE_URL=https://openrouter.ai/api/v1
 GENERATION_MODEL=anthropic/claude-sonnet-4-6
 ALIGNMENT_MODEL=anthropic/claude-haiku-4-5-20251001
 
-# OpenAI — for text-embedding-3-small (book ingestion + similarity search)
+# OpenAI — for text-embedding-3-small
 OPENAI_API_KEY=sk-...
 
 # Google Slides — base64-encoded service account JSON
-# Service account needs Drive API read access
 GOOGLE_SERVICE_ACCOUNT_JSON=<base64>
 
-# Database
-DATABASE_URL=postgresql+asyncpg://rmg:rmg@localhost:5434/rmgdb
+# Database — Neon provides postgresql://...?sslmode=require
+# start.sh and settings.py auto-convert to asyncpg + ssl=require
+DATABASE_URL=postgresql://user:pass@host/db?sslmode=require
 
-# Redis
-REDIS_URL=redis://localhost:6379/0
+# Redis — Upstash provides rediss:// (double s = TLS)
+REDIS_URL=rediss://default:pass@host:6379
 
 # Source content grounding
-ALIGNMENT_THRESHOLD=0.7         # below this score → "fail" verdict
-MAX_SOURCE_CHARS_PER_DECK=12000 # total chars across all passages per deck
+ALIGNMENT_THRESHOLD=0.7
+MAX_SOURCE_CHARS_PER_DECK=12000
 
-# Book retrieval (requires running ingest_books.py first)
-USE_BOOK_RETRIEVAL=false         # set true to auto-retrieve from books/
-BOOK_RETRIEVAL_TOP_K=6           # max chunks to retrieve per deck
-BOOKS_DIR=books                  # relative path to your books folder
+# Book retrieval (run ingest_books.py first)
+USE_BOOK_RETRIEVAL=false
+BOOK_RETRIEVAL_TOP_K=6
+BOOKS_DIR=books
 
 # Tuning
 MAX_RETRIES=3
@@ -642,14 +673,11 @@ PATTERN_CONFIDENCE_THRESHOLD=0.75
 SHADOW_PROMOTION_MARGIN=0.05
 MIN_EXAMPLES_CONSTANT=20
 
-# Shadow A/B config per skill (optional)
-SHADOW_CONFIG_JSON={"concept_explainer":{"traffic_pct":0.2,"min_slides":50}}
-
-# CORS — comma-separated, or * for open
+# CORS
 CORS_ORIGINS=*
 ```
 
-> **Never commit `.env`** — it contains your API keys and the service account private key. The `.gitignore` already excludes it.
+> **Never commit `.env`** — it contains your API keys. `.gitignore` already excludes it.
 
 ---
 
@@ -657,258 +685,214 @@ CORS_ORIGINS=*
 
 ### Prerequisites
 - Python 3.11+
-- Node.js 20+ (for frontend and PromptFoo)
+- Node.js 20+
 - Docker Desktop
 
 ### Step 1 — Start infrastructure
-
 ```bash
 docker compose up -d
+# PostgreSQL 16 (pgvector) on port 5434
+# Redis 7 on port 6379
 ```
 
-This starts:
-- **PostgreSQL 16** with pgvector on port `5434`
-- **Redis 7** on port `6379`
-
 ### Step 2 — Install Python dependencies
-
 ```bash
 pip install -e ".[dev]"
 ```
 
 ### Step 3 — Configure environment
-
 ```bash
 cp .env.example .env
-# Edit .env — add ANTHROPIC_API_KEY and OPENAI_API_KEY at minimum
+# Add ANTHROPIC_API_KEY and OPENAI_API_KEY at minimum
 ```
 
 ### Step 4 — Run database migrations
-
 ```bash
 python -m alembic upgrade head
 ```
 
-This creates all tables and the pgvector IVFFlat index.
-
 ### Step 5 — Seed initial prompts
-
 ```bash
 python seed_db.py
 ```
 
-This inserts the initial `active` prompt versions for all skill types into `prompt_versions`.
-
 ### Step 6 — (Optional) Ingest books
-
-Drop any `.pdf`, `.epub`, or `.txt` grammar/reference books into the `books/` folder, then:
-
 ```bash
+# Drop .pdf/.epub/.txt files into books/, then:
 python ingest_books.py
+# Set USE_BOOK_RETRIEVAL=true in .env to enable auto-retrieval
 ```
 
-After ingestion, set `USE_BOOK_RETRIEVAL=true` in `.env` to enable automatic retrieval.
-
 ### Step 7 — Install frontend dependencies
-
 ```bash
-cd frontend
-npm install
+cd frontend && npm install
 ```
 
 ---
 
 ## Running the Server
 
-### Backend (FastAPI)
-
+### Backend
 ```bash
 uvicorn ppt_agent.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
-
-Or use the installed script:
-
-```bash
-rmg-server
-```
-
 API: `http://localhost:8000` | Docs: `http://localhost:8000/docs`
 
-### Frontend (React)
-
+### Frontend (dev)
 ```bash
-cd frontend
-npm run dev
+cd frontend && npm run dev
 ```
+UI: `http://localhost:5173` — Vite proxies API calls to port 8000.
 
-UI: `http://localhost:5173`
-
-Vite proxies all `/generate`, `/review`, `/ops`, `/export`, `/source-content` requests to port 8000.
+### Updating prompts after format changes
+```bash
+python reseed_prompts.py
+```
 
 ---
 
-## Frontend
+## Deployment — Render + Neon + Upstash (Free)
 
-### Upload Page (`/`)
-- Drag-and-drop `.pptx` upload or Google Slides URL input
-- Shows a spinner while generation runs
-- Redirects to `/review/{deck_id}` on success
+**Total cost: $0/month** — three services, all on permanent free tiers.
 
-### Review Page (`/review/:deckId`)
-- Fetches the `deck_reading` generation for the deck
-- Renders the full Markdown output using `react-markdown` + `remark-gfm` + `rehype-raw`
-- **Copy MD** button — copies raw Markdown to clipboard
-- **Open Preview** link — opens the Markdown in the external preview tool
-- **Source passages** link — navigates to `/source/:deckId` to manage reference passages
-- **Approve** button — optionally override eval score (0–1)
-- **Reject** button — opens FeedbackModal with 13 signal types
+| What | Provider | Free tier |
+|---|---|---|
+| Web app (FastAPI + React) | Render | 750 hrs/month |
+| PostgreSQL + pgvector | Neon | 512 MB, always on |
+| Redis | Upstash | 10k req/day |
 
-### Source Content Page (`/source/:deckId`)
-- Budget bar — green/yellow/red based on character usage vs 12,000-char limit
-- Lists all passages with **AlignmentBadge** (pass/warn/fail + score)
-- Hover over badge to see the scorer's reason
-- **Delete** button per passage
-- **+ Add reference passage** — collapsible form with fields: topic label, passage text (2,000-char max with countdown), source title, page reference, author
+FastAPI serves the React build as static files — one URL for everything.
 
-### Dashboard Page (`/dashboard`)
-- Per-skill stats table: total generations, approved, rejected, repair count, avg score, avg cost
-- `deck_reading` row highlighted — it is the primary skill used by the system
-- Open alerts list and repair queue depth
+### Step 1 — Neon (PostgreSQL)
+
+1. Sign up at [neon.tech](https://neon.tech) → **Create Project** → name: `rmg`
+2. Go to **SQL Editor** → run:
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS vector;
+   ```
+3. Copy the **Connection String** (looks like `postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require`)
+
+### Step 2 — Upstash (Redis)
+
+1. Sign up at [upstash.com](https://upstash.com) → **Create Database**
+2. Name: `rmg-redis`, Region: `us-east-1`
+3. Copy the **Redis URL** (looks like `rediss://default:pass@xxx.upstash.io:6379`)
+
+### Step 3 — Render (Web Service)
+
+1. **New + → Blueprint** → select `Reading-Material-Generation` repo → **Apply**
+2. After deploy: **Dashboard → rmg-api → Environment** → set:
+
+| Key | Value |
+|---|---|
+| `DATABASE_URL` | Neon connection string |
+| `REDIS_URL` | Upstash Redis URL (starts with `rediss://`) |
+| `ANTHROPIC_API_KEY` | OpenRouter key `sk-or-v1-...` |
+| `OPENAI_API_KEY` | OpenAI key |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | base64 service account string |
+
+3. **Save Changes** → **Manual Deploy → Deploy latest commit**
+
+### URLs after deployment
+
+```
+https://rmg-api.onrender.com          ← your app (React UI)
+https://rmg-api.onrender.com/docs     ← FastAPI auto-docs
+https://rmg-api.onrender.com/healthz  ← health check
+```
+
+> **Note:** Render's free web service spins down after 15 minutes of inactivity. First request after inactivity takes ~30 seconds to wake up.
+
+### SSL note — Neon + asyncpg
+Neon provides `?sslmode=require` in the connection string, which is a psycopg2 parameter. `settings.py` automatically converts it:
+- asyncpg path: `sslmode=require` → `ssl=require`
+- Alembic (psycopg2) path: keeps `sslmode=require`
+
+No manual URL editing needed.
 
 ---
 
 ## Self-Improving Prompt System (DSPy + GEPA)
 
 ### G-Eval Auto-Scoring
-
-When a generation is approved, `geval.py` runs in the background:
-
-1. Configures DSPy with the OpenRouter LLM
-2. Runs `dspy.ChainOfThought` against a `ReadingMaterialQuality` signature
-3. Returns a float `0.0–1.0` and a reasoning string
-4. Writes the score back to `generations.eval_score`
+On approval, `geval.py` runs `dspy.ChainOfThought` against a `ReadingMaterialQuality` signature and writes a `0.0–1.0` score back to `generations.eval_score`.
 
 ### GEPA Prompt Optimisation
-
-When a generation is rejected, `prompt_optimizer.py` runs in the background:
-
-1. Queries all labelled `deck_reading` generations (approved = 1.0, rejected = 0.0)
-2. If fewer than 10 examples — skips (not enough signal)
-3. If ≥ 10 examples — runs `dspy.teleprompt.GEPA` using `GEPAFeedbackMetric` as the reward signal
-4. Stores the result as a new `PromptVersion` with `status = 'candidate'`
-5. The ops background job picks it up and promotes it to `shadow` for A/B testing
+On rejection, `prompt_optimizer.py` queries labelled examples. At ≥10 examples, `dspy.teleprompt.GEPA` rewrites the prompt and stores it as a `candidate` version for shadow A/B testing.
 
 ### Reseeding Prompts
-
-If you change `format_schema.py` or `seed_prompts.py`, run:
-
+After editing `format_schema.py` or `seed_prompts.py`:
 ```bash
 python reseed_prompts.py
 ```
-
-This updates all existing `active` prompt versions in the database without inserting duplicates.
 
 ---
 
 ## Shadow A/B Testing
 
-Each new prompt candidate goes through shadow testing before becoming active:
+Traffic split is **per deck** — `hashlib.md5(deck_id)` → deterministic float. All slides in one deck always go to the same branch.
 
-1. **Traffic split** — determined **per deck** using `hashlib.md5(deck_id)` → deterministic float. All slides in one deck always go to the same branch.
-
-2. **Config** — per-skill traffic percentage and minimum slide count set in `SHADOW_CONFIG_JSON`:
-   ```json
-   {"deck_reading": {"traffic_pct": 0.2, "min_slides": 50}}
-   ```
-
-3. **Promotion** — every 15 minutes the ops background job compares:
-   ```
-   shadow_avg_score - active_avg_score >= SHADOW_PROMOTION_MARGIN (default 0.05)
-   ```
-   - Shadow wins → promoted to `active`, old active → `retired`
-   - Shadow loses → `retired`
-
-Shadow generations are stored with `is_shadow = True` and excluded from the review UI.
+Promotion check every 15 minutes:
+```
+shadow_avg_score - active_avg_score >= SHADOW_PROMOTION_MARGIN (0.05)
+```
+Shadow wins → `active`. Shadow loses → `retired`.
 
 ---
 
 ## Memory System
 
-### Similar Output Retrieval
-`retrieval.py` embeds slide content using `text-embedding-3-small`, then queries pgvector for the top-5 most similar **approved** past outputs. These are injected as `MemoryContext` into skill prompts for the legacy per-slide path.
-
-### Pattern Memory
-High-severity feedback signals (`severity >= 2` with a reviewer note) are upserted as `pattern_memory` candidates. When a pattern's `example_count` reaches:
-```
-ceil(PATTERN_CONFIDENCE_THRESHOLD × MIN_EXAMPLES_CONSTANT)
-= ceil(0.75 × 20) = 15
-```
-it is promoted to `active` and injected into future prompts as a learned constraint.
+- **Similar output retrieval** — top-5 approved past outputs by pgvector cosine similarity, injected as `MemoryContext`
+- **Pattern memory** — high-severity feedback upserted as candidates, promoted at `ceil(0.75 × 20) = 15` examples
 
 ---
 
 ## Circuit Breaker & Repair Queue
 
-Each skill call is wrapped with `@with_circuit_breaker(skill_type)`:
-
-1. First failure → retry immediately, increment `retry_count`
-2. After `MAX_RETRIES` (default 3) failures → set `status = 'needs_repair'`, insert into `repair_queue`, return `RepairRequired` dataclass
-3. The router checks `isinstance(result, RepairRequired)` and branches accordingly
-4. Repair queue is visible in the dashboard and via `GET /review/repair-queue`
+`@with_circuit_breaker(skill_type)` wraps each skill:
+1. Failure → retry, increment `retry_count`
+2. After `MAX_RETRIES` → `status = 'needs_repair'`, insert into `repair_queue`, return `RepairRequired`
+3. Router checks `isinstance(result, RepairRequired)` and branches
 
 ---
 
 ## Ops Monitoring & Auto-Rollback
 
-The `ops_background_job()` runs every 15 minutes inside the FastAPI lifespan.
+Background job every 15 minutes:
 
-### Alert Conditions
-
-| Alert Type | Threshold |
+| Alert | Threshold |
 |---|---|
-| `score_drop` | Last 100 avg score drops ≥ 0.3 vs previous 100 |
+| `score_drop` | Last 100 avg drops ≥ 0.3 vs previous 100 |
 | `repair_queue_depth` | Pending repairs ≥ 50 |
 | `repair_queue_age` | Oldest pending repair > 24 hours |
 
-### Auto-Rollback
-
-If a `score_drop` alert is open and the skill has a parent prompt version:
-1. `prompt_store.rollback(skill_type)` promotes the parent back to `active`
-2. Current active → `retired`
-3. Alert marked `resolved = True`
-
-Alerts can also be manually resolved via `POST /ops/alerts/{id}/resolve`.
+On `score_drop`: auto-rollback promotes the parent prompt version back to `active`.
 
 ---
 
 ## Eval Pipeline (PromptFoo)
 
-PromptFoo runs two tiers of evaluation:
-
 ### Tier 1 — Deterministic (must all pass)
 
-Minimal topic-agnostic checks that apply to any `deck_reading` output:
-- Must contain `## ` (H2 sections)
-- Must contain `| --- |` (at least one markdown table)
-- Must contain `**` (bold terms used)
-- Must contain `Exception` (exception section present)
-- Minimum length: 1,200 characters
+Checks applied to every `deck_reading` output:
+
+| Check | Assertion |
+|---|---|
+| Has H2 sections | `## ` present |
+| Has markdown tables | `\| --- \|` present |
+| Has bold terms | `**` present |
+| Learning Objectives | `Learning Objectives` present |
+| Before You Begin | `Before You Begin` present |
+| Common Mistakes | `Common Mistakes` present |
+| Practice exercises | `Practice` present |
+| Exception cases | `Exception` present |
+| Quick Recap | `Quick Recap` present |
 
 ### Tier 2 — LLM Rubric
-`caption_judge.py` is a Python subprocess provider that:
-1. Reads JSON from stdin (PromptFoo format)
-2. Calls the LLM synchronously to score the output 1–5
-3. Writes `{"output": ..., "score": ..., "pass": ...}` to stdout
-
-Average Tier 2 score must be ≥ 3.5 for a prompt to be eligible for promotion.
-
-### Running Evals
+`caption_judge.py` scores 1–5. Avg must be ≥ 3.5 for promotion eligibility.
 
 ```bash
-# Via PromptFoo directly
 npx promptfoo eval --config ppt_agent/evals/promptfoo.yaml
-
-# Or via the regression runner (writes results back to DB)
 python -m ppt_agent.evals.run_regression
 ```
 
@@ -917,148 +901,85 @@ python -m ppt_agent.evals.run_regression
 ## Running Tests
 
 ```bash
-# All unit tests (no DB/Redis required)
-pytest
-
-# With integration tests (requires running DB + Redis)
-pytest -m integration
-
-# Specific file
+pytest                     # unit tests only
+pytest -m integration      # requires live DB + Redis
 pytest ppt_agent/tests/test_api.py -v
 ```
-
-**Test coverage:**
-- `test_slide_parser.py` — PPTX parsing with synthetic files
-- `test_circuit_breaker.py` — retry logic and RepairRequired return
-- `test_memory.py` — pgvector similarity search (integration)
-- `test_image_pipeline.py` — vision pipeline with mocked LLM
-- `test_api.py` — all API routes via `httpx.AsyncClient(ASGITransport)`
-- `test_evals.py` — PromptFoo provider JSON in/out
 
 ---
 
 ## Content Quality Guidelines
 
-These are the content standards that every generated reading material must meet. They are enforced through the system prompt (`format_schema.py`), the reviewer approval workflow, and the GEPA optimizer.
-
-1. Clearly define the target audience, learner profile, and learning objectives before developing the material.
-2. Understand the learners' linguistic, cultural, educational, and exposure background, and adapt the teaching approach accordingly instead of using the same method for all learners.
-3. Conduct proper market research to understand current industry trends, learner expectations, and exam or job-related requirements.
-4. Refer to authentic and reliable reference materials, and verify concepts using multiple trusted sources before creating the content.
-5. Plan the content structure carefully and maintain a logical flow by progressing from basic concepts to advanced topics using clear headings and subheadings.
-6. Ensure the difficulty level, explanations, and examples align with the learner's proficiency, curriculum, assessment pattern, or skill requirement.
-7. Use simple, clear, concise, and learner-friendly language with proper grammatical accuracy and consistent formatting throughout the material.
-8. Keep the content organised and manageable through short paragraphs, bullet points, summaries, and quick revision sections.
-9. Include definitions, key points, formulas, shortcuts, and concept explanations wherever necessary for better understanding and retention.
-10. Add practical, real-life, academic, and professional application-based examples so learners understand why, what, and where a concept is used.
-11. Use contextual scenarios, case-based situations, and problem-solving activities to encourage critical thinking, analytical reasoning, and practical application.
-12. Include practice exercises, activities, and assessment-oriented questions after each section to reinforce learning outcomes.
-13. Identify common learner difficulties and errors caused by first-language influence, direct translation methods, limited exposure, or incorrect usage patterns, and explain why learners are likely to make those mistakes.
-14. Provide corrective guidance, awareness-based explanations, and practical usage examples to help learners recognise errors and develop natural, context-appropriate English communication skills.
-15. Use visuals, charts, tables, or diagrams wherever necessary to improve comprehension, engagement, and content clarity.
-16. Cross-check all references, examples, explanations, answers, and factual information thoroughly to ensure accuracy, consistency, and overall content quality.
-17. Regularly review, update, and revise the material based on learner feedback, updated research, and changing academic or industry requirements.
-
----
-
-## Markdown Conversion Guidelines
-
-These standards govern how content is structured, formatted, and rendered in Markdown across the review UI and exported files.
-
-1. Understand the purpose, target platform, and formatting requirements before starting the Markdown conversion process.
-2. Maintain the original meaning, structure, and logical flow of the content during conversion.
-3. Use proper Markdown syntax consistently for headings, subheadings, bullet points, numbered lists, tables, links, code blocks, and emphasis formatting.
-4. Ensure clear hierarchy and readability by using appropriate heading levels and spacing throughout the document.
-5. Keep the formatting clean, organised, and visually consistent across all sections.
-6. Verify that all lists, indentation, alignment, and nested formatting render correctly after conversion.
-7. Preserve important content elements such as examples, tables, formulas, notes, warnings, and highlighted points without distortion.
-8. Ensure hyperlinks, references, embedded resources, and navigation elements function properly after conversion.
-9. Optimise the document for readability across different platforms, editors, and devices that support Markdown rendering.
-10. Cross-check the converted Markdown output for formatting errors, broken structure, missing content, or rendering inconsistencies.
-11. Ensure grammatical accuracy, proper spacing, and consistent terminology throughout the converted material.
-12. Follow standardised naming conventions, file organisation practices, and documentation guidelines wherever applicable.
-13. Review and test the final Markdown file in a Markdown-preview to confirm proper rendering and usability.
+1. Clearly define the target audience, learner profile, and learning objectives before developing material.
+2. Understand learners' linguistic, cultural, and educational background and adapt accordingly.
+3. Conduct market research on current industry trends, exam patterns, and learner expectations.
+4. Refer to authentic reference materials and verify concepts from multiple trusted sources.
+5. Plan content structure logically — basic to advanced with clear headings.
+6. Ensure difficulty, examples, and explanations align with learner proficiency.
+7. Use simple, clear, learner-friendly language with consistent formatting.
+8. Keep content manageable through short paragraphs, bullet points, and Quick Recap sections.
+9. Include definitions, key points, formulas, and shortcuts.
+10. Add practical, real-life, academic, and professional examples.
+11. Use contextual scenarios and problem-solving activities.
+12. Include CEFR-labelled practice exercises with answers and remediation hints after each section.
+13. Identify and explain common learner errors caused by L1 interference.
+14. Provide corrective guidance with awareness-based explanations.
+15. Use tables, diagrams, and image placeholders for clarity.
+16. Cross-check all references, examples, and factual information thoroughly.
+17. Review and update material based on learner feedback and changing requirements.
 
 ---
 
 ## Guidelines Alignment — Application Cross-Check
 
-### Content Quality Guidelines
-
 | # | Guideline | Status | How the application covers it |
 |---|---|---|---|
-| 1 | Define target audience and learning objectives | ✅ | `AUDIENCE_PROMPT` specifies the learner profile and language level; `ConfigInjection` supports per-deck audience overrides |
-| 2 | Adapt to learner background | ⚠️ | Audience profile is a default — no per-deck variation for different learner levels yet |
-| 3 | Market research on industry trends | ⚠️ | Must be done manually before uploading the source deck — the system does not perform market research |
-| 4 | Verify concepts from trusted sources | ✅ | Source content grounding forces all facts to come from curated passages; alignment validator scores relevance; human reviewer approves before publishing |
-| 5 | Logical flow — basic to advanced | ✅ | Topic-driven format enforces: definition → rule/types → examples → exceptions as a logical progression |
-| 6 | Difficulty aligned to proficiency | ✅ | Audience prompt specifies language proficiency level; examples must match that level |
-| 7 | Simple, learner-friendly language | ✅ | Prompt enforces plain, direct language appropriate to the audience |
-| 8 | Short paragraphs, summaries, revision sections | ⚠️ | Tables and short paragraphs enforced; no dedicated Quick Recap section yet |
-| 9 | Definitions, key points, shortcuts | ✅ | Every section opens with a definition; key terms in **bold** throughout |
-| 10 | Practical, professional examples | ✅ | Examples use real-world contexts from the audience's domain |
-| 11 | Contextual scenarios, analytical thinking | ✅ | Plain example sentences must show context — not just isolated grammar forms |
-| 12 | Practice exercises after each section | ⚠️ | No mandatory practice exercises in the current format — reviewer can flag with `missing_example` |
-| 13 | Common learner errors — L1 interference | ⚠️ | `missing_common_errors` feedback signal exists; Exception section covers some; dedicated Common Errors section not yet enforced |
-| 14 | Corrective guidance in explanations | ✅ | Exception section shows what NOT to do alongside correct forms |
-| 15 | Visuals, charts, tables | ✅ | Tables mandatory for all comparisons; image placeholders for diagrams; reviewer can flag with `needs_diagram` |
-| 16 | Cross-check accuracy before publishing | ✅ | Human Approve/Reject workflow + G-Eval auto-scoring + Tier-1 structural assertions + alignment validator |
-| 17 | Regular review based on feedback | ✅ | GEPA optimizer rewrites prompts on rejection; 13 feedback signals feed pattern memory; Shadow A/B validates improvements |
+| 1 | Define audience and learning objectives | ✅ | `AUDIENCE_PROMPT` + mandatory `## Learning Objectives` section in every document |
+| 2 | Adapt to learner background | ✅ | Persona callout boxes (Beginner Tip / Placement Candidate / Advanced Extension) in every document |
+| 3 | Market research | ⚠️ | Manual — system doesn't perform market research; content developer must supply reference books |
+| 4 | Verify from trusted sources | ✅ | Source content grounding + alignment validator + human approval workflow |
+| 5 | Logical flow | ✅ | Topic-driven format enforces definition → rule → examples → exceptions |
+| 6 | Difficulty aligned to proficiency | ✅ | CEFR labels on exercises (B1 / B1–B2 / B2–C1) |
+| 7 | Learner-friendly language | ✅ | Prompt enforces plain, second-person, conversational tone |
+| 8 | Short paragraphs + revision sections | ✅ | `## Quick Recap` is mandatory in every document |
+| 9 | Definitions, key points, shortcuts | ✅ | Every section opens with a definition; key terms in **bold** |
+| 10 | Practical examples | ✅ | General / Academic / Professional usage table required |
+| 11 | Contextual scenarios | ✅ | `## Dialogue Simulation` with 3 Person A/B scenarios (Pattern B topics) |
+| 12 | Practice exercises | ✅ | 3 CEFR-labelled non-MCQ exercises with inline answers in every document |
+| 13 | Common errors + L1 interference | ✅ | `## Common Mistakes` table (≥4 rows) with L1 interference reasons — mandatory |
+| 14 | Corrective guidance | ✅ | Remediation hints after each exercise; `Exception Cases` section |
+| 15 | Visuals and tables | ✅ | Tables mandatory for all comparisons; image placeholders; `needs_diagram` feedback signal |
+| 16 | Cross-check accuracy | ✅ | Human review + G-Eval + Tier-1 assertions + alignment validator |
+| 17 | Regular review from feedback | ✅ | GEPA optimizer + 13 feedback signals + shadow A/B testing |
 
-### Markdown Conversion Guidelines
+### Remaining gaps (architectural work required)
 
-| # | Guideline | Status | How the application covers it |
-|---|---|---|---|
-| 1 | Understand purpose and platform | ✅ | Format spec is purpose-built for the review UI; topic-driven pattern chosen per topic type |
-| 2 | Maintain meaning and logical flow | ✅ | `deck_compiler.py` uses all slide titles to maintain the original deck's logical progression |
-| 3 | Consistent Markdown syntax | ✅ | `#` / `##` / `###`, tables, `**bold**`, `*italic*`, `> blockquote` all explicitly required; `<b>` HTML explicitly forbidden |
-| 4 | Clear hierarchy with spacing | ✅ | H1 → H2 → H3 hierarchy with `---` dividers between major sections |
-| 5 | Clean, consistent formatting | ✅ | Both Pattern A and Pattern B have consistent section sequences |
-| 6 | Verify lists and tables render correctly | ⚠️ | `remark-gfm` handles GFM tables and lists; human reviewer must confirm rendering before approving |
-| 7 | Preserve examples, tables, notes | ✅ | Tables, bold terms, and image placeholders all explicitly preserved |
-| 8 | Hyperlinks for references | ⚠️ | Source titles shown in the prompt but not formatted as clickable links in the output |
-| 9 | Readable across platforms | ✅ | Pure Markdown — zero HTML (except user-inserted `<img>` S3 tags) — most portable format |
-| 10 | Check for structural errors | ✅ | `TIER1_ASSERTIONS` validates H2 sections, table syntax, bold terms, and exception section presence |
-| 11 | Grammar accuracy and terminology | ⚠️ | Reviewer can reject with `factual_error` or `unclear_explanation`; no automated grammar checker pre-review |
-| 12 | Naming conventions | ✅ | `skill_type` naming is consistent; section headings follow the same pattern per topic type |
-| 13 | Test in Markdown preview | ✅ | `GenerationCard` is a live rendered preview — reviewer sees the final output; external preview tool available via "Open Preview" button |
-
-### Known Gaps — Planned Improvements
-
-| Priority | Gap | Planned Fix |
-|---|---|---|
-| High | No mandatory Common Errors section (Guideline 13) | Enforce `## Common Errors` in the seed prompt with 3–5 L1-interference examples and corrections |
-| Medium | No Quick Recap section (Guideline 8) | Add `## Quick Recap` with one-line takeaway per section at the end of each document |
-| Medium | Source titles not clickable links in output | Update prompt rule so reference attributions use `[Title](URL)` Markdown format |
-| Low | Audience profile not configurable per deck | Expose `ConfigInjection.audience` field in the upload form |
+| Gap | What's needed |
+|---|---|
+| True learner persona routing | Persona selector on upload form + `ConfigInjection.difficulty_level` wired to API |
+| Dynamic remediation | Quiz submission endpoint + score storage + follow-up generation |
+| Per-topic RAG retrieval | One retrieval query per slide title instead of one combined query |
+| External standards (CEFR, Cambridge) | Ingest Cambridge Grammar in Use / ETS reference materials into `books/` |
 
 ---
 
 ## Key Design Decisions
 
-### One LLM call per deck
-Earlier versions made one call per slide — O(n) cost and latency. The current architecture makes **exactly one call** per deck upload. Slides provide topic structure; the LLM writes the reading material as a coherent whole rather than stitching per-slide fragments.
+**One LLM call per deck** — Earlier versions made one call per slide (O(n) cost). Now exactly one call per upload covers all topics coherently.
 
-### Slide titles only — no body text
-The PPT body text is intentionally excluded from the prompt. The LLM should write fresh, grounded content — not paraphrase bullet points from slides. All factual content must come from curated source passages. This forces the human content developer to supply the factual grounding.
+**Slide titles only — no body text** — Body text is intentionally excluded so the LLM writes fresh content grounded in source passages, not slide bullets.
 
-### Topic-driven format over fixed template
-The original design used a rigid template (Overview → Subtopics → How to Prepare etc.) that did not suit grammar or communication topics. The current approach instructs the LLM to choose between Pattern A (grammar rule) and Pattern B (communication/pragmatics) based on the topic, producing output that matches how grammar textbooks actually look.
+**Topic-driven format over fixed template** — Pattern A (grammar rule) vs Pattern B (communication) chosen based on the topic. Produces output that matches how grammar textbooks actually look.
 
-### Source grounding + alignment scoring
-Adding reference passages before generating is optional but strongly recommended. The alignment validator (Haiku) runs on upload — not at generation time — keeping generation fast while giving the content developer immediate feedback on whether their passages are relevant.
+**Instructional completeness over content expansion** — Format mandates 7 sections (Objectives → Prerequisites → Teaching → Dialogue → Mistakes → Practice → Recap) so every document functions as a standalone instructional unit, not a reference summary.
 
-### Book retrieval as a fallback, not a default
-Auto-retrieval from ingested books (`USE_BOOK_RETRIEVAL=true`) is disabled by default. It activates only when no manual passages exist. This prevents book text from silently overriding carefully chosen passages. Manual always wins.
+**OpenRouter over direct Anthropic** — Any OpenRouter-supported model swappable via env vars. No code changes needed.
 
-### OpenRouter instead of direct Anthropic
-The LLM wrapper uses the OpenAI SDK pointed at `https://openrouter.ai/api/v1`. Any OpenRouter-supported model can be swapped in via `GENERATION_MODEL` and `ALIGNMENT_MODEL` env vars — no code changes needed.
+**Per-deck shadow determinism** — `hashlib.md5(deck_id)` ensures all slides in one deck always go to the same prompt branch.
 
-### Per-deck shadow determinism
-Shadow traffic split uses `hashlib.md5(deck_id)` — not per-request randomness. This ensures all slides within one deck always go to the same prompt version, making A/B comparisons meaningful.
+**Human reviewer as the quality gate** — G-Eval, alignment scores, and Tier-1 assertions are advisory. A person approves before any material reaches learners.
 
-### Human reviewer as the quality gate
-Every generated document sits in `pending` status until a human approves it. G-Eval score, alignment score, and Tier-1 assertions are all advisory — none auto-approve. Factual accuracy, common-error coverage, and language quality are verified by a person before any material reaches learners.
+**Single-service deployment** — FastAPI serves the React build as static files. One Render service = one URL = no CORS configuration needed.
 
 ---
 
