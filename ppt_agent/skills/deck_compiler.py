@@ -233,10 +233,45 @@ def _build_user_text(slides: list[ParsedSlide], source_passages: list[SourceCont
             lines.append(chunk.chunk_text)
             lines.append("")
     else:
-        lines.append(
-            "Generate ONE complete reading material document covering ALL topics listed above.\n"
-            "No reference passages have been provided — use your training knowledge.\n"
-            "Cover every topic in the outline thoroughly. Do not skip any."
-        )
+        # No curated passages and no book retrieval. Use the slide body text
+        # itself as grounding so the reading material reflects what the deck
+        # actually teaches — not just a generic essay on the titles. This is
+        # what makes the output match the student's input deck.
+        slide_content_blocks = []
+        total_chars = 0
+        max_chars = 30_000   # keep the grounding block within prompt budget
+        for slide in slides:
+            body = (slide.body_text or "").strip()
+            notes = (slide.speaker_notes or "").strip()
+            label = (slide.title or f"Slide {slide.slide_index}").strip()
+            block = f"[Slide {slide.slide_index} — {label}]"
+            if body:
+                block += f"\n{body}"
+            if notes:
+                block += f"\nNotes: {notes}"
+            if body or notes:
+                if total_chars + len(block) > max_chars:
+                    break
+                slide_content_blocks.append(block)
+                total_chars += len(block)
+
+        if slide_content_blocks:
+            lines += [
+                "Generate ONE complete reading material document covering ALL topics above.",
+                "Base the document on the SLIDE CONTENT below — this is what the",
+                "presentation actually teaches. Expand, explain, and structure this content",
+                "into proper instructional reading material. You MAY add clarifying detail",
+                "and examples from your knowledge, but every topic the slides cover must be",
+                "covered, and you must not contradict the slide content.",
+                "",
+                "--- SLIDE CONTENT (the actual presentation — basis for the document) ---\n",
+            ] + slide_content_blocks
+        else:
+            # Slides truly have no extractable body text (image-only deck).
+            lines.append(
+                "Generate ONE complete reading material document covering ALL topics listed above.\n"
+                "No slide body text was available — use your training knowledge.\n"
+                "Cover every topic in the outline thoroughly. Do not skip any."
+            )
 
     return "\n".join(lines)

@@ -45,12 +45,10 @@ def parse(source: str) -> list[ParsedSlide]:
 
 def _parse_pptx(path: Path) -> list[ParsedSlide]:
     from pptx import Presentation
-    from pptx.enum.shapes import MSO_SHAPE_TYPE  # type: ignore[attr-defined]
+    from pptx.enum.shapes import MSO_SHAPE_TYPE, PP_PLACEHOLDER  # type: ignore[attr-defined]
 
     prs = Presentation(str(path))
     slides: list[ParsedSlide] = []
-
-    from pptx.enum.shapes import PP_PLACEHOLDER  # type: ignore[attr-defined]
 
     # Placeholder types that represent a slide title in PowerPoint.
     _TITLE_PH_TYPES = {
@@ -59,63 +57,89 @@ def _parse_pptx(path: Path) -> list[ParsedSlide]:
         PP_PLACEHOLDER.SUBTITLE,
     }
 
+    def _is_title_placeholder(shape) -> bool:
+        try:
+            pf = shape.placeholder_format
+            return pf is not None and (pf.idx == 0 or pf.type in _TITLE_PH_TYPES)
+        except (ValueError, AttributeError):
+            return False
+
+    def _walk(shapes, idx, *, title_ref, text_parts, text_shapes, images, img_counter):
+        """Recursively walk shapes — descends into groups and reads tables — so
+        text inside grouped/templated shapes is not lost (the common reason a
+        polished deck parses with zero titles)."""
+        for shape in shapes:
+            # Group → recurse into its children
+            if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+                _walk(
+                    shape.shapes, idx,
+                    title_ref=title_ref, text_parts=text_parts,
+                    text_shapes=text_shapes, images=images, img_counter=img_counter,
+                )
+                continue
+
+            # Table → join all cell text
+            if shape.has_table:
+                rows = []
+                for row in shape.table.rows:
+                    cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                    if cells:
+                        rows.append(" | ".join(cells))
+                tbl_text = "\n".join(rows).strip()
+                if tbl_text:
+                    text_parts.append(tbl_text)
+                    text_shapes.append(tbl_text)
+                continue
+
+            # Text frame
+            if shape.has_text_frame:
+                shape_text = shape.text_frame.text.strip()
+                if shape_text:
+                    if _is_title_placeholder(shape) and title_ref[0] is None:
+                        title_ref[0] = shape_text
+                    else:
+                        text_parts.append(shape_text)
+                    text_shapes.append(shape_text)
+
+            # Picture
+            if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                try:
+                    blob = shape.image.blob
+                    content_type = shape.image.content_type or "image/png"
+                    images.append(
+                        EmbeddedImage(
+                            md5=hashlib.md5(blob).hexdigest(),
+                            base64_data=base64.b64encode(blob).decode(),
+                            mime_type=content_type,
+                            slide_index=idx,
+                            image_index=img_counter[0],
+                        )
+                    )
+                    img_counter[0] += 1
+                except Exception:
+                    pass
+
     for idx, slide in enumerate(prs.slides):
-        title: Optional[str] = None
+        title_ref: list[Optional[str]] = [None]
         text_parts: list[str] = []
         text_shapes: list[str] = []   # all non-empty text, in document order — fallback source
         images: list[EmbeddedImage] = []
-        img_idx = 0
+        img_counter = [0]
 
-        for shape in slide.shapes:
-            # Title — prefer a real title placeholder (idx 0 or a title-type placeholder).
-            # python-pptx raises ValueError when accessing placeholder_format on a
-            # non-placeholder shape, so guard every access.
-            if shape.has_text_frame:
-                shape_text = shape.text_frame.text.strip()
-
-                is_title_ph = False
-                try:
-                    pf = shape.placeholder_format
-                    if pf is not None and (pf.idx == 0 or pf.type in _TITLE_PH_TYPES):
-                        is_title_ph = True
-                except (ValueError, AttributeError):
-                    pass
-
-                if is_title_ph and title is None and shape_text:
-                    title = shape_text
-                else:
-                    if shape_text:
-                        text_parts.append(shape_text)
-
-                if shape_text:
-                    text_shapes.append(shape_text)
-
-            # Images
-            if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-                blob = shape.image.blob
-                content_type = shape.image.content_type or "image/png"
-                md5 = hashlib.md5(blob).hexdigest()
-                b64 = base64.b64encode(blob).decode()
-                images.append(
-                    EmbeddedImage(
-                        md5=md5,
-                        base64_data=b64,
-                        mime_type=content_type,
-                        slide_index=idx,
-                        image_index=img_idx,
-                    )
-                )
-                img_idx += 1
+        _walk(
+            slide.shapes, idx,
+            title_ref=title_ref, text_parts=text_parts,
+            text_shapes=text_shapes, images=images, img_counter=img_counter,
+        )
+        title = title_ref[0]
 
         # Fallback: no formal title placeholder (common in decks made from text
-        # boxes, Google Slides, Canva, etc.). Use the first non-empty text shape's
-        # first line as the title so the LLM receives a real topic, not "Slide N".
+        # boxes, Google Slides, Canva, grouped templates). Use the first non-empty
+        # text shape's first line as the title so the LLM receives a real topic.
         if title is None and text_shapes:
             first_line = text_shapes[0].splitlines()[0].strip()
-            # Keep titles concise — a long paragraph is body text, not a heading.
             if first_line and len(first_line) <= 120:
                 title = first_line
-                # Avoid duplicating the promoted line in the body text.
                 if text_parts and text_parts[0].splitlines()[0].strip() == first_line:
                     remainder = "\n".join(text_parts[0].splitlines()[1:]).strip()
                     if remainder:
