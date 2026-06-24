@@ -12,6 +12,7 @@ Source passage budget:
 """
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import uuid
@@ -24,6 +25,7 @@ from ppt_agent.db.models import Generation, SourceContent
 from ppt_agent.db.session import get_db_session
 from ppt_agent.memory.prompt_store import get_active
 from ppt_agent.skills.cost_tracker import _cost_usd
+from ppt_agent.skills.topic_coverage_validator import validate_topic_coverage
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from slide_parser import ParsedSlide
@@ -31,6 +33,8 @@ from slide_parser import ParsedSlide
 MAX_SOURCE_CHARS_PER_DECK = 12_000  # default; runtime value comes from settings
 
 from ppt_agent.config.settings import settings as _settings  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 
 class SourceBudgetExceeded(Exception):
@@ -77,6 +81,11 @@ async def compile_deck(deck_id: str, slides: list[ParsedSlide]) -> str:
         if source_rows:
             check_source_budget(list(source_rows))
 
+        # Persisted so a human (or this validator) can later check what the
+        # document was actually supposed to cover — previously this was
+        # discarded after the LLM call, making input/output drift invisible.
+        topic_outline = [s.title.strip() for s in slides if s.title and s.title.strip()]
+
         user_text = _build_user_text(slides, list(source_rows), book_chunks)
 
         output, tokens_in, tokens_out, truncated = await llm.complete(
@@ -89,7 +98,7 @@ async def compile_deck(deck_id: str, slides: list[ParsedSlide]) -> str:
             # Large multi-topic decks can still exceed 16k tokens with the
             # full instructional format — retry once with a much higher budget
             # instead of silently storing a cut-off document.
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "deck_compiler: output truncated at 16000 tokens for deck %s — retrying with 32000",
                 deck_id,
             )
@@ -99,11 +108,41 @@ async def compile_deck(deck_id: str, slides: list[ParsedSlide]) -> str:
                 max_tokens=32000,
             )
             if truncated:
-                logging.getLogger(__name__).warning(
+                logger.warning(
                     "deck_compiler: output still truncated at 32000 tokens for deck %s — "
                     "deck likely has too many topics for one document",
                     deck_id,
                 )
+
+        # Topic coverage check — catches the case where the document drifts
+        # away from what the input slides actually asked for. On a clear
+        # mismatch, regenerate once with the missing topics called out
+        # explicitly instead of silently shipping an off-topic document.
+        coverage = await validate_topic_coverage(topic_outline, output)
+
+        if coverage.verdict == "fail":
+            logger.warning(
+                "deck_compiler: topic coverage FAILED for deck %s (score=%.2f, missing=%s) — regenerating once",
+                deck_id, coverage.coverage_score, coverage.missing_topics,
+            )
+            correction_text = (
+                user_text
+                + "\n\n--- CORRECTION REQUIRED ---\n"
+                + "Your previous attempt did not substantively cover these required topics: "
+                + ", ".join(coverage.missing_topics or topic_outline)
+                + ". Rewrite the document end to end so that EVERY topic in the outline above "
+                + "gets a real, substantive section — not just a passing mention."
+            )
+            retry_output, retry_tokens_in, retry_tokens_out, retry_truncated = await llm.complete(
+                system=prompt_version.prompt_text,
+                user=correction_text,
+                max_tokens=32000,
+            )
+            if not retry_truncated:
+                output = retry_output
+                tokens_in += retry_tokens_in
+                tokens_out += retry_tokens_out
+                coverage = await validate_topic_coverage(topic_outline, output)
 
         gen = Generation(
             deck_id=uuid.UUID(deck_id),
@@ -111,6 +150,10 @@ async def compile_deck(deck_id: str, slides: list[ParsedSlide]) -> str:
             slide_index=-1,
             prompt_version_id=prompt_version.id,
             output_text=output,
+            topic_outline=json.dumps(topic_outline),
+            topic_coverage_score=coverage.coverage_score,
+            topic_coverage_verdict=coverage.verdict,
+            topic_coverage_reason=coverage.reason,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             token_cost_usd=_cost_usd(tokens_in, tokens_out),

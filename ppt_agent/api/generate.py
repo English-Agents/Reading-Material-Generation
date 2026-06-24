@@ -8,6 +8,7 @@ Flow:
 """
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import tempfile
@@ -147,6 +148,10 @@ async def list_generations(
             "eval_score": float(g.eval_score) if g.eval_score is not None else None,
             "token_cost_usd": float(g.token_cost_usd) if g.token_cost_usd is not None else None,
             "output_text": g.output_text,
+            "topic_outline": json.loads(g.topic_outline) if g.topic_outline else None,
+            "topic_coverage_score": float(g.topic_coverage_score) if g.topic_coverage_score is not None else None,
+            "topic_coverage_verdict": g.topic_coverage_verdict,
+            "topic_coverage_reason": g.topic_coverage_reason,
             "created_at": g.created_at.isoformat() if g.created_at else None,
         }
         for g in rows

@@ -5,6 +5,7 @@ import rehypeRaw from "rehype-raw";
 import type { Generation, FeedbackSignal } from "../api/client";
 import { approveGeneration, rejectGeneration } from "../api/client";
 import FeedbackModal from "./FeedbackModal";
+import AlignmentBadge from "./AlignmentBadge";
 
 const PREVIEW_URL = "https://react-markdown-preview-web-alpha.earlywave.in/markdown-preview";
 
@@ -74,6 +75,16 @@ export default function GenerationCard({ gen, onUpdate }: Props) {
           {gen.token_cost_usd !== null && gen.token_cost_usd !== undefined && (
             <span className="text-xs text-slate-400">${gen.token_cost_usd.toFixed(4)}</span>
           )}
+          {gen.topic_coverage_verdict && (
+            <span className="flex items-center gap-1">
+              <span className="text-xs text-slate-400">Topic coverage:</span>
+              <AlignmentBadge
+                verdict={gen.topic_coverage_verdict}
+                score={gen.topic_coverage_score}
+                reason={gen.topic_coverage_reason}
+              />
+            </span>
+          )}
 
           {/* Toolbar — right side */}
           <div className="ml-auto flex items-center gap-2">
@@ -97,6 +108,20 @@ export default function GenerationCard({ gen, onUpdate }: Props) {
             </a>
           </div>
         </div>
+
+        {/* Input topic outline — lets reviewer compare what was uploaded vs what was generated */}
+        {gen.topic_outline && gen.topic_outline.length > 0 && (
+          <details className="px-5 py-2 border-b border-slate-100 bg-slate-50/50 text-xs text-slate-600">
+            <summary className="cursor-pointer font-medium text-slate-500">
+              Input topic outline ({gen.topic_outline.length} slides)
+            </summary>
+            <ol className="mt-2 ml-4 list-decimal space-y-0.5">
+              {gen.topic_outline.map((t, i) => (
+                <li key={i}>{t}</li>
+              ))}
+            </ol>
+          </details>
+        )}
 
         {/* Reading material */}
         <div className="p-6 prose prose-slate max-w-none text-sm overflow-y-auto max-h-[70vh]

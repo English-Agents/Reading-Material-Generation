@@ -92,6 +92,10 @@ class Generation(Base):
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_shadow: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     embedding: Mapped[Optional[list]] = mapped_column(Vector(1536), nullable=True)
+    topic_outline: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    topic_coverage_score: Mapped[Optional[float]] = mapped_column(Numeric(4, 3), nullable=True)
+    topic_coverage_verdict: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    topic_coverage_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("NOW()")
     )

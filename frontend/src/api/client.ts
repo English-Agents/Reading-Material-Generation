@@ -31,6 +31,10 @@ export interface Generation {
   eval_score: number | null;
   token_cost_usd: number | null;
   output_text: string | null;
+  topic_outline: string[] | null;
+  topic_coverage_score: number | null;
+  topic_coverage_verdict: "pass" | "warn" | "fail" | null;
+  topic_coverage_reason: string | null;
   created_at: string | null;
 }
 
