@@ -29,9 +29,11 @@ async def complete(
     system: str,
     user: str,
     max_tokens: int = 4096,
-) -> tuple[str, int, int]:
+) -> tuple[str, int, int, bool]:
     """
-    Returns (output_text, tokens_in, tokens_out).
+    Returns (output_text, tokens_in, tokens_out, truncated).
+    truncated is True when the model hit max_tokens before finishing —
+    the caller should treat the output as incomplete.
     """
     client = _async_client()
     resp = await client.chat.completions.create(
@@ -42,9 +44,11 @@ async def complete(
             {"role": "user", "content": user},
         ],
     )
-    text = resp.choices[0].message.content or ""
+    choice = resp.choices[0]
+    text = choice.message.content or ""
     usage = resp.usage
-    return text, (usage.prompt_tokens if usage else 0), (usage.completion_tokens if usage else 0)
+    truncated = choice.finish_reason == "length"
+    return text, (usage.prompt_tokens if usage else 0), (usage.completion_tokens if usage else 0), truncated
 
 
 async def complete_with_images(

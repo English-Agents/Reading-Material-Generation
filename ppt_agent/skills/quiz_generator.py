@@ -33,7 +33,7 @@ async def run(
         "Generate 2-3 comprehension questions with answers based on the content above."
     )
 
-    output, tokens_in, tokens_out = await llm.complete(system=system, user=user_content, max_tokens=2048)
+    output, tokens_in, tokens_out, _ = await llm.complete(system=system, user=user_content, max_tokens=2048)
     await record_cost(generation_id, tokens_in, tokens_out, db)
     return output
 

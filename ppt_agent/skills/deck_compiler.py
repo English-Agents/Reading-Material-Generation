@@ -12,6 +12,7 @@ Source passage budget:
 """
 from __future__ import annotations
 
+import logging
 import sys
 import uuid
 from pathlib import Path
@@ -78,11 +79,31 @@ async def compile_deck(deck_id: str, slides: list[ParsedSlide]) -> str:
 
         user_text = _build_user_text(slides, list(source_rows), book_chunks)
 
-        output, tokens_in, tokens_out = await llm.complete(
+        output, tokens_in, tokens_out, truncated = await llm.complete(
             system=prompt_version.prompt_text,
             user=user_text,
-            max_tokens=8192,
+            max_tokens=16000,
         )
+
+        if truncated:
+            # Large multi-topic decks can still exceed 16k tokens with the
+            # full instructional format — retry once with a much higher budget
+            # instead of silently storing a cut-off document.
+            logging.getLogger(__name__).warning(
+                "deck_compiler: output truncated at 16000 tokens for deck %s — retrying with 32000",
+                deck_id,
+            )
+            output, tokens_in, tokens_out, truncated = await llm.complete(
+                system=prompt_version.prompt_text,
+                user=user_text,
+                max_tokens=32000,
+            )
+            if truncated:
+                logging.getLogger(__name__).warning(
+                    "deck_compiler: output still truncated at 32000 tokens for deck %s — "
+                    "deck likely has too many topics for one document",
+                    deck_id,
+                )
 
         gen = Generation(
             deck_id=uuid.UUID(deck_id),

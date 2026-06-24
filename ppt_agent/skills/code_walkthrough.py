@@ -32,7 +32,7 @@ async def run(
         f"SPEAKER NOTES:\n{slide.speaker_notes or '(none)'}"
     )
 
-    output, tokens_in, tokens_out = await llm.complete(system=system, user=user_content, max_tokens=4096)
+    output, tokens_in, tokens_out, _ = await llm.complete(system=system, user=user_content, max_tokens=4096)
     await record_cost(generation_id, tokens_in, tokens_out, db)
     return output
 
