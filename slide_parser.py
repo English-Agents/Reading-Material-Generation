@@ -50,24 +50,45 @@ def _parse_pptx(path: Path) -> list[ParsedSlide]:
     prs = Presentation(str(path))
     slides: list[ParsedSlide] = []
 
+    from pptx.enum.shapes import PP_PLACEHOLDER  # type: ignore[attr-defined]
+
+    # Placeholder types that represent a slide title in PowerPoint.
+    _TITLE_PH_TYPES = {
+        PP_PLACEHOLDER.TITLE,
+        PP_PLACEHOLDER.CENTER_TITLE,
+        PP_PLACEHOLDER.SUBTITLE,
+    }
+
     for idx, slide in enumerate(prs.slides):
         title: Optional[str] = None
         text_parts: list[str] = []
+        text_shapes: list[str] = []   # all non-empty text, in document order — fallback source
         images: list[EmbeddedImage] = []
         img_idx = 0
 
         for shape in slide.shapes:
-            # Title — placeholder index 0; python-pptx raises ValueError on non-placeholders
+            # Title — prefer a real title placeholder (idx 0 or a title-type placeholder).
+            # python-pptx raises ValueError when accessing placeholder_format on a
+            # non-placeholder shape, so guard every access.
             if shape.has_text_frame:
+                shape_text = shape.text_frame.text.strip()
+
                 is_title_ph = False
                 try:
-                    is_title_ph = shape.placeholder_format.idx == 0
+                    pf = shape.placeholder_format
+                    if pf is not None and (pf.idx == 0 or pf.type in _TITLE_PH_TYPES):
+                        is_title_ph = True
                 except (ValueError, AttributeError):
                     pass
-                if is_title_ph:
-                    title = shape.text_frame.text.strip() or None
+
+                if is_title_ph and title is None and shape_text:
+                    title = shape_text
                 else:
-                    text_parts.append(shape.text_frame.text.strip())
+                    if shape_text:
+                        text_parts.append(shape_text)
+
+                if shape_text:
+                    text_shapes.append(shape_text)
 
             # Images
             if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
@@ -85,6 +106,22 @@ def _parse_pptx(path: Path) -> list[ParsedSlide]:
                     )
                 )
                 img_idx += 1
+
+        # Fallback: no formal title placeholder (common in decks made from text
+        # boxes, Google Slides, Canva, etc.). Use the first non-empty text shape's
+        # first line as the title so the LLM receives a real topic, not "Slide N".
+        if title is None and text_shapes:
+            first_line = text_shapes[0].splitlines()[0].strip()
+            # Keep titles concise — a long paragraph is body text, not a heading.
+            if first_line and len(first_line) <= 120:
+                title = first_line
+                # Avoid duplicating the promoted line in the body text.
+                if text_parts and text_parts[0].splitlines()[0].strip() == first_line:
+                    remainder = "\n".join(text_parts[0].splitlines()[1:]).strip()
+                    if remainder:
+                        text_parts[0] = remainder
+                    else:
+                        text_parts.pop(0)
 
         # Speaker notes
         notes_text = ""

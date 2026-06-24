@@ -56,9 +56,12 @@ async def _process_pptx_bytes(pptx_bytes: bytes, source_url: str) -> GenerateRes
         raise HTTPException(status_code=422, detail="No slides could be extracted from the file.")
 
     # ONE LLM call for the whole deck
-    from ppt_agent.skills.deck_compiler import compile_deck
+    from ppt_agent.skills.deck_compiler import NoTopicsExtracted, compile_deck
     try:
         deck_gen_id = await compile_deck(deck_id, slides)
+    except NoTopicsExtracted as exc:
+        logger.warning("No topics extracted for deck %s: %s", deck_id, exc)
+        raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
         logger.error("Deck compilation failed for deck %s: %s", deck_id, exc)
         raise HTTPException(status_code=500, detail=f"Reading material generation failed: {exc}")

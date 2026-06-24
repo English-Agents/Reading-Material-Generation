@@ -41,6 +41,11 @@ class SourceBudgetExceeded(Exception):
     pass
 
 
+class NoTopicsExtracted(Exception):
+    """Raised when no slide produced a usable title — generation would be meaningless."""
+    pass
+
+
 def check_source_budget(passages: list[SourceContent]) -> None:
     limit = _settings.max_source_chars_per_deck
     total = sum(len(p.passage_text) for p in passages)
@@ -85,6 +90,16 @@ async def compile_deck(deck_id: str, slides: list[ParsedSlide]) -> str:
         # document was actually supposed to cover — previously this was
         # discarded after the LLM call, making input/output drift invisible.
         topic_outline = [s.title.strip() for s in slides if s.title and s.title.strip()]
+
+        # Guard: if the parser extracted no real titles, the LLM would only
+        # receive "Slide 0..N" placeholders and produce an off-topic document.
+        # Fail loudly instead of burning a generation on meaningless input.
+        if not topic_outline:
+            raise NoTopicsExtracted(
+                f"No slide titles could be extracted from this deck ({len(slides)} slides). "
+                "The file may use images-only slides, or an unsupported layout. "
+                "Add source passages manually, or upload a deck with text titles."
+            )
 
         user_text = _build_user_text(slides, list(source_rows), book_chunks)
 
