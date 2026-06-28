@@ -28,7 +28,7 @@ from ppt_agent.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-HAIKU_MODEL = "anthropic/claude-haiku-4-5-20251001"   # overridden at runtime by settings.alignment_model
+HAIKU_MODEL = "anthropic/claude-haiku-4-5"   # overridden at runtime by settings.alignment_model
 
 TOPIC_COVERAGE_JUDGE_PROMPT = """
 You are checking whether a generated reading material document substantively covers

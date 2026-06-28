@@ -22,7 +22,7 @@ from ppt_agent.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-HAIKU_MODEL = "anthropic/claude-haiku-4-5-20251001"   # overridden at runtime by settings.alignment_model
+HAIKU_MODEL = "anthropic/claude-haiku-4-5"   # overridden at runtime by settings.alignment_model
 
 ALIGNMENT_JUDGE_PROMPT = """
 You are evaluating whether a book passage is relevant to a topic.

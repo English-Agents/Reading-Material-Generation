@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     # LLM — OpenRouter (OpenAI-compatible) or direct Anthropic
     anthropic_api_key: str = ""          # accepts OpenRouter key (sk-or-v1-...)
     generation_model: str = "anthropic/claude-sonnet-4-6"
-    alignment_model: str = "anthropic/claude-haiku-4-5-20251001"
+    alignment_model: str = "anthropic/claude-haiku-4-5"
     llm_base_url: str = "https://openrouter.ai/api/v1"
 
     # Source content
